@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { STATUS_ARGV } from '../hooks/git.ts'
+import { HEAD_ARGV, STATUS_ARGV } from '../hooks/git.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -25,11 +25,14 @@ type Setup = { files?: Record<string, any[]>; git?: string; gitExit?: number; pl
 
 // Everything canopy calls, answered from memory and recorded. `calls.files` and `calls.git`
 // can be changed mid-test to stand for the disk and the repository changing; `calls.gitFails`
-// makes `git status` time out.
+// makes `git status` time out. Left unset, `calls.git` says what a real repository would: the
+// files Claude wrote are modified. `calls.head` is the commit HEAD names.
 function stubs(on: any, setup: Setup = {}) {
   const calls = {
     files: setup.files ?? (FILES() as Record<string, any[]>),
-    git: setup.git ?? '## main\0',
+    git: setup.git ?? (null as string | null),
+    dirty: new Set<string>(), // files Claude wrote, which an unset `git` lists as modified
+    head: 'c0ffee1' as string | null,
     gitAll: null as string | null, // what `git status --untracked-files=all` says, when it differs
     gitFails: false,
     lists: [] as string[],
@@ -61,7 +64,11 @@ function stubs(on: any, setup: Setup = {}) {
     if (calls.gitFails && e.argv[1] === 'status') return { deny: 'timed out' }
     const exitCode = setup.gitExit ?? 0
     const all = e.argv.includes('--untracked-files=all') && calls.gitAll !== null
-    const stdout = exitCode !== 0 ? '' : e.argv[1] === 'status' ? (all ? calls.gitAll : calls.git) : ''
+    const status = calls.git ?? '## main\0' + [...calls.dirty].map((rel) => ` M ${rel}\0`).join('')
+    if (exitCode === 0 && e.argv.join(' ') === HEAD_ARGV.join(' ')) {
+      return { value: { exitCode: calls.head ? 0 : 1, stdout: calls.head ? calls.head + '\n' : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    const stdout = exitCode !== 0 ? '' : e.argv[1] === 'status' ? (all ? calls.gitAll : status) : ''
     return { value: { exitCode, stdout, stderr: exitCode ? 'fatal: not a git repository' : '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.open', ($: any, e: any) => {
@@ -90,7 +97,16 @@ function stubs(on: any, setup: Setup = {}) {
   on('command.register', () => ({ value: { command: 'canopy' } }))
   on('session.start', ($: any, e: any) => ({ cwd: e.cwd }))
   on('classic.SessionStart', () => ({}))
-  on('tool.call', ($: any, e: any) => calls.answer(e))
+  on('tool.call', async ($: any, e: any) => {
+    const r = await calls.answer(e)
+    if (!r?.deny) {
+      const named = /^(Edit|Write|NotebookEdit)$/.test(e.tool) ? [e.file_path ?? e.notebook_path] : []
+      for (const path of [...named, ...(r?.result?.bashEditDiff?.changedFiles ?? [])]) {
+        if (typeof path === 'string' && path.startsWith('/w/')) calls.dirty.add(path.slice(3))
+      }
+    }
+    return r
+  })
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
   const clock = mock.clock(on, { now: 1_000_000 })
   return { calls, clock }
@@ -511,7 +527,7 @@ test('an edit pulses, then stays edited for the session', async ($, on) => {
   expect(piece(await ui.find({ key: 'row:src/a.ts' }), '✎')?.props).toEqual({ color: 'claude', dimColor: true })
   expect(await header(ui)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
   await clock.advance(9_000)
-  expect(await row()).toMatch(/●$/)
+  expect(await row()).toMatch(/● M$/)
   const edited = await ui.find({ key: 'row:src/a.ts' })
   expect(piece(edited, 'a.ts')?.props).toEqual({ color: 'warning' })
   expect(piece(edited, '●')?.props).toEqual({ color: 'warning' })
@@ -520,7 +536,7 @@ test('an edit pulses, then stays edited for the session', async ($, on) => {
   await clock.advance(60_000)
   expect(await ui.find({ key: 'row:src/a.ts' })).toBeUndefined()
   const src = await ui.find({ key: 'row:src' })
-  expect(src?.text).toMatch(/▸ src\/ ·1● *$/)
+  expect(src?.text).toMatch(/▸ src\/ ·1● •$/)
   expect(piece(src, 'src/')?.props.color).toBe('warning')
   await ui.unmount()
 })
@@ -816,4 +832,106 @@ test('before its first scan the pane says it is reading', async ($, on) => {
   await start($)
   expect(await ui.find({ key: 'row:src' })).toBeDefined()
   await ui.unmount()
+})
+
+test('a commit made outside Claude turns its edited files committed', async ($, on) => {
+  const { calls, clock } = stubs(on)
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Edit', file_path: '/w/README.md', old_string: 'a', new_string: 'b' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await clock.advance(10_000)
+  expect(await header(ui)).toBe('◆ canopy · ⎇ main · ● 2')
+  // The person commits both from their own terminal: git goes clean and HEAD moves.
+  calls.dirty.clear()
+  calls.head = 'beef002'
+  await clock.advance(5_000)
+  expect(await header(ui)).toBe('◆ canopy · ⎇ main · ✓ 2')
+  const row = await ui.find({ key: 'row:README.md' })
+  expect(piece(row, 'README.md')?.props.color).toBe('success')
+  expect(piece(row, '✓')?.props.color).toBe('success')
+  await ui.unmount()
+})
+
+test('a change put back outside Claude stops counting as edited', async ($, on) => {
+  const { calls, clock } = stubs(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/w/README.md' })
+  await $.tool.call({ tool: 'Edit', file_path: '/w/README.md', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Edit', file_path: '/w/package.json', old_string: 'a', new_string: 'b' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await clock.advance(10_000)
+  expect(await header(ui)).toBe('◆ canopy · ⎇ main · ● 2')
+  // `git restore .`: clean again, HEAD where it was.
+  calls.dirty.clear()
+  await clock.advance(5_000)
+  // README.md was read too, so it stays read; package.json was only written, so it goes.
+  expect(await header(ui)).toBe('◆ canopy · ⎇ main · ○ 1')
+  expect((await ui.find({ key: 'row:README.md' }))?.text).toMatch(/○ *$/)
+  expect((await ui.find({ key: 'row:package.json' }))?.text).toMatch(/package\.json *$/)
+  await ui.unmount()
+})
+
+test('outside a repository an edit stays edited', async ($, on) => {
+  const { clock } = stubs(on, { gitExit: 128 })
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/README.md', old_string: 'a', new_string: 'b' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await clock.advance(70_000)
+  expect(await header(ui)).toBe('◆ canopy · ● 1')
+  await ui.unmount()
+})
+
+test('rereading a changed file keeps the header counts', async ($, on) => {
+  const { clock } = stubs(on)
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/README.md', old_string: 'a', new_string: 'b' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await clock.advance(20_000)
+  await $.tool.call({ tool: 'Read', file_path: '/w/README.md' })
+  expect(await header(ui)).toMatch(/^◆ canopy · ⎇ main · ● 1[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
+  expect(piece(await ui.find({ key: 'row:README.md' }), 'README.md')?.props.color).toBe('suggestion')
+  await ui.unmount()
+})
+
+test('a badge draws on its tile; icons: swatches draws the glyphs', async ($, on) => {
+  stubs(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/w/src/a.ts' })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(piece(await ui.find({ key: 'row:src/a.ts' }), 'TS')?.props).toEqual({ color: '#FFFFFF', backgroundColor: '#3178C6', bold: true })
+    await ui.unmount()
+  }
+})
+
+test('icons: swatches', { options: { icons: 'swatches' } }, async ($, on) => {
+  stubs(on)
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'row:README.md' }))?.text).toMatch(/◆ README\.md/)
+  expect(piece(await ui.find({ key: 'row:package.json' }), '◆')?.props.backgroundColor).toBeUndefined()
+  await ui.unmount()
+})
+
+test('files and folders named like Object.prototype keys draw like any other', async ($, on) => {
+  const files = {
+    '/w': [dir('constructor'), file('__proto__'), file('toString'), file('a.constructor'), file('hasOwnProperty.ts')],
+    '/w/constructor': [file('valueOf')],
+  }
+  const { calls, clock } = stubs(on, { files })
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/constructor/valueOf', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Read', file_path: '/w/toString' })
+  calls.git = '## main\0 M constructor/valueOf\0?? toString\0'
+  await clock.advance(1_000)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.find({ key: 'row:constructor/valueOf' }))?.text).toMatch(/valueOf.*M *$/)
+    expect((await ui.find({ key: 'row:toString' }))?.text).toMatch(/toString[◐◓◑◒] U$/)
+    expect((await ui.find({ key: 'row:a.constructor' }))?.text).toContain('CO a.constructor')
+    expect((await ui.find({ key: 'row:__proto__' }))?.text).toMatch(/__proto__$/)
+    expect(await header(ui)).toContain('● 1 · ○ 1')
+    await ui.unmount()
+  }
 })

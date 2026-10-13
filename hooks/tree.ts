@@ -9,6 +9,19 @@ export type Listing = Record<string, Entry[]>
 /** Names hidden anywhere, path prefixes hidden from the root, and name suffixes (`.log`). */
 export type Ignore = { names: Set<string>; prefixes: string[]; suffixes: string[] }
 
+/**
+ * A record's own value for a key, never one inherited from Object.prototype: a file may well be
+ * named `constructor`.
+ */
+export function own<T>(record: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined
+}
+
+/** Sets a record's own value, even for the key `__proto__`. */
+export function put<T>(record: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(record, key, { value, enumerable: true, writable: true, configurable: true })
+}
+
 export type Row =
   | { type: 'root'; path: ''; name: string }
   | { type: 'dir' | 'file'; path: string; name: string; depth: number; guides: string; expanded: boolean }
@@ -105,7 +118,7 @@ export function flatten(
   let full = false
 
   const walk = (dirRel: string, depth: number, prefix: string): void => {
-    const entries = listing[dirRel] ?? []
+    const entries = own(listing, dirRel) ?? []
     const more = (from: number) => rows.push({ type: 'more', path: dirRel, depth, guides: prefix + ELBOW, count: entries.length - from })
     for (let i = 0; i < entries.length; i++) {
       if (rows.length - 1 >= cap) full = true
@@ -121,7 +134,7 @@ export function flatten(
         rows.push({ type: 'file', path, name: entry.name, depth, guides, expanded: false })
         continue
       }
-      const expanded = listing[path] !== undefined && isExpanded(path)
+      const expanded = own(listing, path) !== undefined && isExpanded(path)
       rows.push({ type: 'dir', path, name: entry.name, depth, guides, expanded })
       if (expanded) walk(path, depth + 1, prefix + (isLast ? GAP : PIPE))
       if (full) {

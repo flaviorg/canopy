@@ -3,10 +3,12 @@
 // show; this one lists folders, asks git, watches Claude's tool calls, keeps the state the
 // pane is drawn from, and draws it.
 import { atom, read, update } from 'claude-code'
-import { allows, anyHot, heat, litDirs, markAll, unread, type Activity, type MarkKind, type Marks } from './activity.ts'
+import { allows, anyHot, heat, litDirs, markAll, settle, unread, type Activity, type MarkKind, type Marks } from './activity.ts'
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
-import { COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
-import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
+import { badgeFor, COMMIT_STATUS_ARGV, committed, HEAD_ARGV, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
+import {
+  anchorFor, ancestors, flatten, ignoreRules, isHidden, join, own, put, relativeTo, toEntries, type Entry, type Ignore, type Listing,
+} from './tree.ts'
 import { isPlain, paneLines, printable, rowKey, type Icons, type Line, type PaneStatus, type Seg } from './view.ts'
 
 type Options = { start: 'on' | 'off'; activity: Activity; ignore: string; follow: 'on' | 'off'; icons: Icons }
@@ -45,6 +47,7 @@ let busy = false // a tick still running when the next one is due lets it pass
 let wasHot = false // one more frame once the last hot mark cools
 let wasLit = false // one more redraw once the last mark goes cold
 let gitDue = false // a file changed: ask git on the next check
+let head: string | null | undefined // the commit HEAD named at the last check: null before the first, undefined not known
 let followTo: string | null = null
 let toasted = false
 
@@ -98,8 +101,8 @@ export function register(on: any, options: Partial<Options>) {
       await $.ui.close({ id: PANE })
       return {}
     }
-    // Open behind another pane's tab: an open only retitles it, so close it and open it again
-    // to bring it to the front.
+    // Open behind another pane's tab (only one pane shows at a time, docked or inline): an open
+    // only retitles it, so close it and open it again to bring it to the front.
     if (pane) await $.ui.close({ id: PANE })
     if (root === null) await boot($)
     else await freshen($)
@@ -179,9 +182,9 @@ async function openPane($: any): Promise<boolean> {
 // last (a passing hiccup); a folder that fails twice in a row is forgotten, and so drawn closed.
 async function scanDir($: any, rel: string): Promise<void> {
   if (root === null) return
-  const was = JSON.stringify(listing[rel])
+  const was = JSON.stringify(own(listing, rel))
   try {
-    listing[rel] = toEntries(await $.fs.list(absolute(rel)), rel, ig)
+    put(listing, rel, toEntries(await $.fs.list(absolute(rel)), rel, ig))
     misses.delete(rel)
   } catch {
     const missed = (misses.get(rel) ?? 0) + 1
@@ -189,7 +192,7 @@ async function scanDir($: any, rel: string): Promise<void> {
     if (missed > 1) delete listing[rel]
   }
   listedAt.set(rel, ++listings)
-  if (JSON.stringify(listing[rel]) !== was) $.ui.invalidate('ui.render')
+  if (JSON.stringify(own(listing, rel)) !== was) $.ui.invalidate('ui.render')
 }
 
 // Lists every folder the tree shows open, parents first (a folder is listed only while its
@@ -232,7 +235,32 @@ async function refreshGit($: any): Promise<GitState | null> {
   gitDue = false
   const state = await readStatus($)
   if (state !== null && JSON.stringify(await read($, gitA)) !== JSON.stringify(state)) await update($, gitA, () => state)
+  if (state !== null && state.branch !== null) await settleClean($, state)
   return state
+}
+
+// Files Claude changed that git now calls clean: committed outside Claude when HEAD moved since
+// the last check, else put back. Each check notes HEAD, so the next one can tell.
+async function settleClean($: any, git: GitState): Promise<void> {
+  const now = await readHead($)
+  if (now === undefined) return
+  const before = head
+  head = now
+  if (before === undefined) return
+  const marks = await read($, marksA)
+  const clean = Object.keys(marks).filter((rel) => own(marks, rel)?.change === 'write' && badgeFor(git.files, rel) === null)
+  if (clean.length === 0) return
+  await update($, marksA, (marks: Marks) => settle(marks, clean, now !== before ? 'committed' : 'reverted'))
+}
+
+// The commit HEAD names: null before the first commit, undefined when git can't say.
+async function readHead($: any): Promise<string | null | undefined> {
+  try {
+    const r = await $.process.run([...HEAD_ARGV], { cwd: root, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_OPTIONAL_LOCKS: '0' } })
+    return r.exitCode === 0 ? r.stdout.trim() || null : null
+  } catch {
+    return undefined
+  }
 }
 
 // One `git status`: the branch and badges; none outside a repository; null when git can't say.
@@ -273,10 +301,15 @@ async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: str
   const now = await $.clock.now()
   const marks = await update($, marksA, (marks: Marks) => markAll(marks, lit, kind, now))
   // The folders above now open; one a scan forgot meanwhile is listed again.
-  for (const dir of new Set(lit.flatMap(ancestors))) if (!(dir in listing)) await scanDir($, dir)
+  for (const dir of new Set(lit.flatMap(ancestors))) if (!Object.hasOwn(listing, dir)) await scanDir($, dir)
   if (settings.follow === 'on' && kind !== 'commit') followTo = lit[lit.length - 1]!
   ensureTicker($)
-  return Object.fromEntries(lit.filter((rel) => marks[rel]).map((rel) => [rel, marks[rel]!]))
+  const left: Marks = {}
+  for (const rel of lit) {
+    const m = own(marks, rel)
+    if (m) put(left, rel, m)
+  }
+  return left
 }
 
 // Whether the tree holds `rel` as a file. Lists the folders above it first, root down (they
@@ -287,7 +320,7 @@ async function showsFile($: any, rel: string, mayBeNew: boolean, listed: Set<str
   for (let i = 0; i < dirs.length; i++) {
     const dir = dirs[i]!
     const holds = () => (i + 1 < dirs.length ? hasEntry(dirs[i + 1]!, 'dir') : hasEntry(rel, 'file'))
-    if (!(dir in listing) || (mayBeNew && !listed.has(dir) && !holds())) {
+    if (!Object.hasOwn(listing, dir) || (mayBeNew && !listed.has(dir) && !holds())) {
       listed.add(dir)
       await scanDir($, dir)
     }
@@ -455,7 +488,7 @@ async function cwdOf($: any): Promise<string | undefined> {
 const indexes = new WeakMap<readonly Entry[], Map<string, Entry['kind']>>()
 
 function hasEntry(rel: string, kind: Entry['kind']): boolean {
-  const entries = listing[parentOf(rel)]
+  const entries = own(listing, parentOf(rel))
   if (entries === undefined) return false
   let index = indexes.get(entries)
   if (index === undefined) {

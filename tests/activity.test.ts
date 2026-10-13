@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
-  allows, anyHot, changeOf, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, markAll, MAX_MARKS, newestHot, rollup, stateOf, tally, unread, WARM_MS,
-  type Marks,
+  allows, anyHot, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, markAll, MAX_MARKS, newestHot, rollup, settle, stateOf, tally, unread,
+  WARM_MS, type Marks,
 } from '../hooks/activity.ts'
 
 const T = 100_000
@@ -73,12 +73,35 @@ test('the activity option filters states', async () => {
   expect(stateOf(mark({}, 'a.ts', 'write', T)['a.ts'], T, 'none')).toBe(null)
 })
 
-test('marks kept from before the change field still say what the file went through', async () => {
-  expect(changeOf({ kind: 'write', at: T, reads: 0, writes: 1 })).toBe('write')
-  expect(changeOf({ kind: 'commit', at: T, reads: 0, writes: 0 })).toBe('commit')
-  expect(changeOf({ kind: 'read', at: T, reads: 2, writes: 1 })).toBe('write')
-  expect(changeOf({ kind: 'read', at: T, reads: 2, writes: 0 })).toBe(undefined)
-  expect(stateOf({ kind: 'read', at: T, reads: 2, writes: 1 }, T + HOT_MS)).toBe('edited')
+test('settle: a commit made outside Claude, or a change put back', async () => {
+  let m = mark({}, 'a.ts', 'write', T)
+  m = mark(m, 'b.ts', 'read', T)
+  m = mark(m, 'b.ts', 'write', T + 1)
+  m = mark(m, 'c.ts', 'read', T)
+  const later = T + 60_000
+  const committed = settle(m, ['a.ts', 'b.ts', 'c.ts', 'gone.ts'], 'committed')
+  expect(stateOf(committed['a.ts'], later)).toBe('committed')
+  expect(stateOf(committed['b.ts'], later)).toBe('committed')
+  // Only what Claude changed is settled: a file it only read stays read.
+  expect(committed['c.ts']).toEqual(m['c.ts'])
+  expect(committed['gone.ts']).toBeUndefined()
+  expect(m['a.ts']?.change).toBe('write')
+  const reverted = settle(m, ['a.ts', 'b.ts'], 'reverted')
+  // a.ts was only written: nothing is left of it. b.ts was read too: it stays read.
+  expect(reverted['a.ts']).toBeUndefined()
+  expect(stateOf(reverted['b.ts'], later)).toBe('read')
+  expect(reverted['b.ts']?.reads).toBe(1)
+})
+
+test('paths named like Object.prototype keys are marks like any other', async () => {
+  let m = mark({}, '__proto__', 'write', T)
+  m = mark(m, 'constructor', 'read', T)
+  expect(Object.getPrototypeOf(m)).toBe(Object.prototype)
+  expect(Object.keys(m).sort()).toEqual(['__proto__', 'constructor'])
+  expect(stateOf(Object.getOwnPropertyDescriptor(m, '__proto__')!.value, T)).toBe('editing')
+  expect(tally(m, T + HOT_MS)).toEqual({ edited: 1, committed: 0, read: 1 })
+  // An empty record has no `constructor` mark of its own.
+  expect(stateOf(mark({}, 'x', 'read', T)['constructor' as 'x'], T)).toBe(null)
 })
 
 test('tally counts changed, committed and read files', async () => {
@@ -90,6 +113,10 @@ test('tally counts changed, committed and read files', async () => {
   m = mark(m, 'e.ts', 'write', T - 60_000)
   expect(tally(m, T)).toEqual({ edited: 2, committed: 1, read: 2 })
   expect(tally(m, T, 'writes')).toEqual({ edited: 2, committed: 1, read: 0 })
+  // Reading a changed or committed file again leaves the counts as they were.
+  const reread = mark(mark(m, 'e.ts', 'read', T + 30_000), 'd.ts', 'read', T + 30_000)
+  expect(stateOf(reread['e.ts'], T + 30_000)).toBe('reading')
+  expect(tally(reread, T + 30_000)).toEqual({ edited: 2, committed: 1, read: 2 })
   expect(tally(m, T, 'none')).toEqual({ edited: 0, committed: 0, read: 0 })
   expect(tally({}, T)).toEqual({ edited: 0, committed: 0, read: 0 })
 })

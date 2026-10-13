@@ -2,7 +2,7 @@
 // 8 seconds (it moves on screen) and warm for a minute after (its folders stay open). What a
 // file went through stays for the whole session: edited, committed or read (see stateOf).
 // Pure, no mods API.
-import { ancestors } from './tree.ts'
+import { ancestors, own, put } from './tree.ts'
 
 export type MarkKind = 'read' | 'write' | 'commit'
 /**
@@ -37,7 +37,7 @@ export function mark(marks: Marks, path: string, kind: MarkKind, now: number): M
 /** mark() for many paths at once (a commit of thousands of files): one copy, one prune. */
 export function markAll(marks: Marks, paths: readonly string[], kind: MarkKind, now: number): Marks {
   const out = { ...marks }
-  for (const path of paths) out[path] = touched(out[path], kind, now)
+  for (const path of paths) put(out, path, touched(own(out, path), kind, now))
   return prune(out, now)
 }
 
@@ -46,16 +46,25 @@ function touched(prev: Mark | undefined, kind: MarkKind, now: number): Mark {
   const writes = (prev?.writes ?? 0) + (kind === 'write' ? 1 : 0)
   const keepWrite = kind === 'read' && prev?.kind === 'write' && heat(prev, now) === 'hot'
   if (keepWrite) return { ...prev!, reads }
-  const change = kind === 'read' ? changeOf(prev) : kind
+  const change = kind === 'read' ? prev?.change : kind
   return change ? { kind, at: now, reads, writes, change } : { kind, at: now, reads, writes }
 }
 
-/** A mark's latest write or commit; marks kept from before `change` existed say it by kind. */
-export function changeOf(m: Mark | undefined): 'write' | 'commit' | undefined {
-  if (!m) return undefined
-  if (m.change) return m.change
-  if (m.kind !== 'read') return m.kind
-  return m.writes > 0 ? 'write' : undefined
+/**
+ * Files Claude changed that git now calls clean. A commit took them (one made outside Claude:
+ * in a terminal, an editor), so they read as committed; or they were put back (checkout,
+ * restore, stash), so each keeps only what Claude read of it, and goes if nothing.
+ */
+export function settle(marks: Marks, paths: readonly string[], how: 'committed' | 'reverted'): Marks {
+  const out = { ...marks }
+  for (const path of paths) {
+    const m = own(out, path)
+    if (m?.change !== 'write') continue
+    if (how === 'committed') put(out, path, { ...m, change: 'commit' })
+    else if (m.reads > 0) put(out, path, { kind: m.kind, at: m.at, reads: m.reads, writes: m.writes })
+    else delete out[path]
+  }
+  return out
 }
 
 /**
@@ -67,17 +76,17 @@ export function changeOf(m: Mark | undefined): 'write' | 'commit' | undefined {
 export function unread(marks: Marks, left: Marks, earlier: Marks): Marks {
   const out = { ...marks }
   for (const [path, mine] of Object.entries(left)) {
-    const now = out[path]
+    const now = own(out, path)
     if (now === undefined) continue
     if (sameMark(now, mine)) {
-      const before = earlier[path]
-      if (before) out[path] = before
+      const before = own(earlier, path)
+      if (before) put(out, path, before)
       else delete out[path]
       continue
     }
     const reads = Math.max(0, now.reads - 1)
-    if (now.kind === 'read' && reads === 0 && !changeOf(now)) delete out[path]
-    else out[path] = { ...now, reads }
+    if (now.kind === 'read' && reads === 0 && !now.change) delete out[path]
+    else put(out, path, { ...now, reads })
   }
   return out
 }
@@ -90,7 +99,7 @@ function sameMark(a: Mark, b: Mark): boolean {
 function prune(marks: Marks, now: number): Marks {
   const extra = Object.keys(marks).length - MAX_MARKS
   if (extra <= 0) return marks
-  const keep = (m: Mark) => (heat(m, now) !== 'cold' ? 2 : changeOf(m) ? 1 : 0)
+  const keep = (m: Mark) => (heat(m, now) !== 'cold' ? 2 : m.change ? 1 : 0)
   const oldest = Object.entries(marks)
     .sort((a, b) => keep(a[1]) - keep(b[1]) || a[1].at - b[1].at)
     .slice(0, extra)
@@ -114,23 +123,27 @@ export function stateOf(m: Mark | undefined, now: number, activity: Activity = '
   const hot = heat(m, now) === 'hot'
   if (hot && m.kind === 'write') return 'editing'
   if (hot && m.kind === 'read' && activity === 'all') return 'reading'
-  const change = changeOf(m)
-  if (change === 'commit') return 'committed'
-  if (change === 'write') return 'edited'
+  if (m.change === 'commit') return 'committed'
+  if (m.change === 'write') return 'edited'
   return activity === 'all' && m.reads > 0 ? 'read' : null
 }
 
 /** Strongest first: what is happening now, then what waits for a commit, then the rest. */
 export const STATE_RANK: Readonly<Record<FileState, number>> = { editing: 5, reading: 4, edited: 3, committed: 2, read: 1 }
 
-/** Files Claude changed and hasn't committed (editing or edited), committed, and only read. */
+/**
+ * Files Claude changed and hasn't committed, committed, and only read. A file counts by what it
+ * went through, not by what it shows this moment: one Claude reads again after changing it
+ * still counts as changed.
+ */
 export function tally(marks: Marks, now: number, activity: Activity = 'all'): { edited: number; committed: number; read: number } {
   const out = { edited: 0, committed: 0, read: 0 }
   for (const m of Object.values(marks)) {
     const state = stateOf(m, now, activity)
-    if (state === 'editing' || state === 'edited') out.edited++
-    else if (state === 'committed') out.committed++
-    else if (state === 'reading' || state === 'read') out.read++
+    if (state === null) continue
+    if (state === 'editing' || m.change === 'write') out.edited++
+    else if (m.change === 'commit') out.committed++
+    else out.read++
   }
   return out
 }

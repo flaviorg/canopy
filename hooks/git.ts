@@ -1,6 +1,6 @@
 // canopy's view of git: the branch and a badge per changed path, read from
 // `git status --porcelain=v1 -b -z`, and which files a commit took. Pure, no mods API.
-import { ancestors } from './tree.ts'
+import { ancestors, own, put } from './tree.ts'
 
 export type Badge = 'M' | 'A' | 'D' | 'R' | 'U'
 export type GitState = { branch: string | null; files: Record<string, Badge> }
@@ -16,6 +16,9 @@ export const COMMIT_STATUS_ARGV: readonly string[] = [...STATUS_ARGV, '--untrack
 
 /** Outside a repository (or before the first status): no branch, no badges. */
 export const NO_GIT: GitState = { branch: null, files: {} }
+
+/** The commit HEAD names; it fails, printing nothing, before the first commit. */
+export const HEAD_ARGV: readonly string[] = ['git', 'rev-parse', '--verify', '-q', 'HEAD']
 
 // Most severe first: a folder shows the worst thing inside it.
 const SEVERITY: readonly Badge[] = ['D', 'M', 'A', 'R', 'U']
@@ -36,7 +39,7 @@ export function parseStatus(out: string): GitState {
     // A rename or copy is followed by the path it came from; that field is not an entry.
     if (x === 'R' || x === 'C') i++
     const badge = badgeOf(x, y)
-    if (badge) files[field.slice(3).replace(/\/$/, '')] = badge
+    if (badge) put(files, field.slice(3).replace(/\/$/, ''), badge)
   }
   return { branch, files }
 }
@@ -61,11 +64,11 @@ function badgeOf(x: string, y: string): Badge | null {
  * the folder).
  */
 export function badgeFor(files: Record<string, Badge>, rel: string): Badge | null {
-  const own = files[rel]
-  if (own) return own
+  const mine = own(files, rel)
+  if (mine) return mine
   const parts = rel.split('/')
   for (let i = parts.length - 1; i > 0; i--) {
-    if (files[parts.slice(0, i).join('/')] === 'U') return 'U'
+    if (own(files, parts.slice(0, i).join('/')) === 'U') return 'U'
   }
   return null
 }
@@ -108,7 +111,7 @@ export function withinPrefix(state: GitState, prefix: string): GitState {
   if (!prefix) return state
   const files: Record<string, Badge> = {}
   for (const [path, badge] of Object.entries(state.files)) {
-    if (path.startsWith(prefix)) files[path.slice(prefix.length)] = badge
+    if (path.startsWith(prefix)) put(files, path.slice(prefix.length), badge)
   }
   return { branch: state.branch, files }
 }

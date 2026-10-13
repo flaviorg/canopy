@@ -1,5 +1,6 @@
 // canopy's file icons: a colored badge (or, with icons: swatches, a colored glyph) before each
 // file name, so a glance tells TypeScript from Markdown from config. Pure data, no mods API.
+import { own } from './tree.ts'
 
 export type Swatch = { glyph: string; color: string }
 
@@ -43,12 +44,12 @@ export const BY_NAME: Readonly<Record<string, Swatch>> = {
 /** The swatch for a file name: special names first, then the extension, then a dim square. */
 export function swatchFor(name: string): Swatch {
   const lower = name.toLowerCase()
-  const special = BY_NAME[lower]
+  const special = own(BY_NAME, lower)
   if (special) return special
   if (lower.startsWith('.env')) return BY_NAME['.env']!
   const dot = lower.lastIndexOf('.')
   if (dot <= 0) return DEFAULT
-  const color = BY_EXT[lower.slice(dot + 1)]
+  const color = own(BY_EXT, lower.slice(dot + 1))
   return color ? { glyph: '▪', color } : DEFAULT
 }
 
@@ -114,7 +115,7 @@ export const BADGE_BY_NAME: Readonly<Record<string, Spec>> = {
  */
 export function iconFor(name: string): FileIcon {
   const lower = name.toLowerCase()
-  const spec = BADGE_BY_NAME[lower] ?? (lower.startsWith('.env') ? BADGE_BY_EXT['env'] : undefined) ?? byExt(lower)
+  const spec = own(BADGE_BY_NAME, lower) ?? (lower.startsWith('.env') ? BADGE_BY_EXT['env'] : undefined) ?? byExt(lower)
   return { label: spec[0], bg: spec[1], fg: spec[2] ?? textOn(spec[1]) }
 }
 
@@ -122,7 +123,7 @@ function byExt(lower: string): Spec {
   const dot = lower.lastIndexOf('.')
   if (dot <= 0) return ['  ', PLAIN_TILE]
   const ext = lower.slice(dot + 1)
-  const known = BADGE_BY_EXT[ext]
+  const known = own(BADGE_BY_EXT, ext)
   if (known) return known
   // Only letters and digits make a label: anything else could be wide or unprintable.
   return /^[a-z0-9]+$/.test(ext) ? [ext.slice(0, 2).toUpperCase().padEnd(2), UNKNOWN_TILE] : ['  ', PLAIN_TILE]

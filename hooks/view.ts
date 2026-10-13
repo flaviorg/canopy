@@ -5,7 +5,7 @@
 // in a Button when it toggles a folder, so focus and the pointer light the folder, not the
 // guides), then, when it has a right side, a growing spacer and the right segments. A segment
 // with no style is drawn as a bare string; a styled one as a Text.
-import type { Row } from './tree.ts'
+import { own, type Row } from './tree.ts'
 import { rollup, stateOf, tally, type Activity, type FileState, type Marks } from './activity.ts'
 import { badgeFor, rollupAll, type Badge, type GitState } from './git.ts'
 import { iconFor, swatchFor } from './filetypes.ts'
@@ -149,7 +149,7 @@ export function treeLines(input: ViewInput): Line[] {
       case 'dir':
         return dirLine({ ...row, guides: guides(row.guides) }, row.expanded ? null : inside.get(row.path) ?? null, badgeOf(row.path), slots, input.frame)
       case 'file':
-        return fileLine({ ...row, guides: guides(row.guides) }, stateOf(input.marks[row.path], input.now, input.activity), input, slots)
+        return fileLine({ ...row, guides: guides(row.guides) }, stateOf(own(input.marks, row.path), input.now, input.activity), input, slots)
       case 'more':
         return { key: 'more:' + printable(row.path), left: [{ text: guides(row.guides) + `… ${row.count} more`, dim: true }], right: [] }
     }
