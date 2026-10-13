@@ -8,7 +8,8 @@
 [![Tested with](https://img.shields.io/badge/tested_with-Claude_Code_2.1.296-0d0d0f?style=flat-square)](#compatibility)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8a877f?style=flat-square)](LICENSE)
 
-<img src="docs/media/canopy.gif" alt="Claude works through a task while canopy's tree beside the chat lights each file: a spinner on the files it reads, a pulsing green dot on the ones it edits, a check mark once they are committed" width="800">
+<!-- A recording replaces this still once it is made. -->
+<img src="docs/media/canopy.png" alt="canopy docked beside a real Claude Code session: notes.md and index.ts read, router.ts edited and not yet committed, todos.ts committed, todos.test.ts being edited right now, each in its own color, with TS, CS, M↓ and {} badges before the names" width="414">
 
 </div>
 
@@ -18,25 +19,27 @@ them, and every file it touches lights up. A glance tells you what it's reading,
 changed, and what's already committed.
 
 ```text
-╭──────────────────────────────────────────────╮
-│ ◆ canopy · ⎇ main · ✎ 2 · ◉ 3              ⠹ │
-│ ▾ my-app/                                  • │
-│ ├─ ▸ docs/ ·1                                │
-│ ├─ ▾ src/                                  • │
-│ │  ├─ ▾ components/                        • │
-│ │  │  ├─ ▪ Button.tsx                    ● M │
-│ │  │  └─ ▪ Header.tsx                    ◐   │
-│ │  ├─ ▪ index.ts                         ✓   │
-│ │  └─ ▪ utils.ts                           M │
-│ ├─ ▪ notes.md                              U │
-│ ├─ ◆ package.json                            │
-│ └─ ◆ README.md                           ·   │
-│                                              │
-│ ● editing  ◐ reading  ✓ committed            │
-│ M modified  A added  U untracked  D deleted  │
-│ R renamed                                    │
-╰──────────────────────────────────────────────╯
+│ ◆ canopy · ⎇ main · ● 2 · ✓ 1 · ○ 3       ⠹
+│ ▾ my-app/                                 •
+│ ├─ ▸ docs/ ·1                           ○
+│ ├─ ▾ src/                                 •
+│ │  ├─ ▾ components/                       •
+│ │  │  ├─ TS Button.tsx                  ✎ M
+│ │  │  └─ TS Header.tsx                  ◐
+│ │  ├─ TS index.ts                       ✓
+│ │  └─ TS utils.ts                       ● M
+│ ├─ M↓ notes.md                            U
+│ ├─ {} package.json                      ○
+│ └─ M↓ README.md
+│
+│ ✎ editing  ● edited  ✓ committed
+│ ◐ reading  ○ read
+│ M modified  A added  U untracked  D deleted
+│ R renamed
 ```
+
+*(In the pane each name takes its state's color, and each badge sits on a tile in its
+language's color.)*
 
 ## Install
 
@@ -52,21 +55,27 @@ Then start a new session, or run `/reload-plugins`. Canopy is also listed in my
 
 ## What lights up
 
-| | When | How it shows |
-|---|---|---|
-| ◐ | Claude reads a file: the `Read` tool, or `cat`, `head`, `tail`, `sed -n`, `grep`, `rg`, `wc`… in the shell | The name takes your theme's suggestion color with a spinner for 8 seconds, then a quiet `·` for a minute. A `Read` lights from the moment Claude asks, so one waiting for your permission is already lit; a shell read lights once the command has run |
-| ● | Claude edits a file: `Edit`, `Write`, `NotebookEdit`, or a shell command that changed it | The name turns bold green with a dot that pulses bright and dim, then stays green for a minute |
-| ✓ | Claude commits | Every file the commit took, new ones included, gets a green check for a minute |
-| `M` `A` `D` `R` `U` | `git status` | Modified, added, deleted, renamed, untracked: right-aligned, in the theme's colors. A folder rolls everything inside it up into one small dot (`•`) in the color of the most serious change |
-| `·3` | Activity inside a closed folder | The count, in canopy green |
-| ▪ ◆ | Always | A swatch in each file type's color; `◆` marks the files that define a project (`package.json`, `README.md`, `CLAUDE.md`, `Dockerfile`…) |
+Every file Claude touches keeps a state for the whole session, each in its own color, so a
+glance tells what is happening now, what changed and waits for a commit, and what landed.
 
-The header counts the files edited (`✎`) and only read (`◉`) this session, and spins while
-anything is live. Folders Claude works in open by themselves and close again a minute after
-it leaves. Press a folder (click it, or Tab to it and press Enter) to open or close it; a
-folder you close stays closed, showing its `·N` count instead. With **Follow** on, the pane
-scrolls to the file Claude is on. In a narrow pane, rows nested deeper than half its width
-show their last levels after a dim `⋯`, so file names stay readable.
+| | State | When | How it shows |
+|---|---|---|---|
+| ✎ | **editing** | Claude is writing the file: `Edit`, `Write`, `NotebookEdit`, or a shell command that changed it | The name turns bold in Claude's orange, and the pencil pulses bright and dim, for 8 seconds |
+| ● | **edited** | Claude changed it and hasn't committed it | The name stays yellow, like git's `M`, for the rest of the session |
+| ✓ | **committed** | Claude committed it: every file the commit took, new ones included | The name turns green, with a check, until Claude changes it again |
+| ◐ | **reading** | Claude is reading it: the `Read` tool, or `cat`, `head`, `tail`, `sed -n`, `grep`, `rg`, `wc`… in the shell | The name turns blue, with a turning quarter moon, for 8 seconds. A `Read` lights from the moment Claude asks, so one waiting for your permission is already lit; a shell read lights once the command has run |
+| ○ | **read** | Claude read it earlier | A blue ring beside its plain name. Reading a changed file spins for a moment, then shows the change again |
+| `M` `A` `D` `R` `U` | git | `git status` | Modified, added, deleted, renamed, untracked: right-aligned, in the theme's colors. A folder rolls everything inside it up into one small dot (`•`) in the color of the most serious change |
+| `·3` | inside a folder | A closed folder holds files Claude touched | The folder's name, its count and its glyph take the strongest state inside: what is happening now, then what waits for a commit, then what landed, then what was read |
+| `TS` `{}` `M↓` | file type | Always | A two-letter badge on a tile in the language's color (`TS`, `JS`, `{}`, `M↓`, `CS`, `PY`, `$_`…); special files get their own (`package.json`, `Dockerfile`, `.gitignore`, `CLAUDE.md`…) |
+
+The header counts the files changed and not committed (`●`), committed (`✓`) and only read
+(`○`) this session, and a spinner turns while Claude is reading or writing. Folders Claude
+works in open by themselves and close again a minute after it leaves, keeping their count.
+Press a folder (click it, or Tab to it and press Enter) to open or close it; a folder you
+close stays closed. With **Follow** on, the pane scrolls to the file Claude is on. In a
+narrow pane, rows nested deeper than half its width show their last levels after a dim `⋯`,
+so file names stay readable.
 
 While the pane is shown, canopy reads `.gitignore` again, rescans the open folders and asks
 git again every five seconds, so changes made outside Claude appear too.
@@ -75,7 +84,7 @@ git again every five seconds, so changes made outside Claude appear too.
 
 | Command | What it does |
 |---|---|
-| `/canopy` | Shows the tree, or hides it when it's showing |
+| `/canopy` | Shows the tree, or hides it when it's showing. When another mod's pane is in front, brings canopy's back |
 | `/canopy refresh` | Reads `.gitignore` again and rescans everything |
 
 ## Options
@@ -88,6 +97,7 @@ Set them with `/plugin configure canopy@canopy`:
 | `activity` | `all`, `writes`, `none` | `all` | Which of Claude's file activity lights the tree. `writes` skips reads; `none` keeps a plain tree with git badges |
 | `ignore` | comma-separated names, `*.ext` suffixes or `folder/path` paths | *(empty)* | More to hide, on top of `.gitignore` and the built-ins (`node_modules`, `.git`, `dist`, `build`, `.next`, `coverage`, `__pycache__`, `.venv`, `target`, `.turbo`, `.cache`, `.DS_Store`) |
 | `follow` | `on`, `off` | `on` | Scroll to the file Claude is touching |
+| `icons` | `badges`, `swatches` | `badges` | `badges` draws a two-letter tile in each file type's color; `swatches` a small colored square (`◆` for the files that define a project) |
 
 ## Privacy
 
@@ -111,6 +121,12 @@ transcript (44 columns wide); otherwise it sits above the prompt. Claude Code pl
 a mod opens on its own only from 144 columns, so on a narrower terminal canopy waits for you
 to run `/canopy`.
 
+The dock shows one pane at a time, with a tab for each: when another mod opens its pane (say
+[crew](https://github.com/flaviorg/crew) as Claude delegates), click canopy's tab or run
+`/canopy` to bring the tree back. In fullscreen, Claude Code's own diff panel may open beside
+the transcript when a file changes and cover the dock; `/diff` closes it, and Claude Code
+remembers that.
+
 Large projects stay responsive: a folder draws at most 500 entries and the tree at most
 2,000 rows, and the rest fold into `… N more` rows, so one huge folder never hides the others. In a monorepo, start Claude in a package folder and the badges follow that folder.
 
@@ -118,14 +134,15 @@ Large projects stay responsive: a folder draws at most 500 entries and the tree 
 
 ```bash
 claude plugin validate --strict .   # manifest, hooks and calls
-claude plugin test .                 # 118 tests, no session or sign-in needed
+claude plugin test .                 # 130 tests, no session or sign-in needed
 claude --plugin-dir .                # try it in a session; edits hot-reload
 ```
 
 `hooks/register.ts` is the only file that touches the mods API. The rest are plain modules
 with one job each, tested on their own: `tree.ts` (ignore rules and guide lines),
-`activity.ts` (marks and heat), `git.ts` (status parsing), `bashpaths.ts` (what a shell
-command reads or changes), `view.ts` (the look) and `filetypes.ts` (swatches). Design notes
+`activity.ts` (marks, heat and each file's state), `git.ts` (status parsing), `bashpaths.ts`
+(what a shell command reads or changes), `view.ts` (the look) and `filetypes.ts` (badges and
+swatches). Design notes
 live in [`docs/superpowers/plans`](docs/superpowers/plans).
 
 ## Credits
