@@ -106,7 +106,7 @@ export function register(on: any, options: Partial<Options>) {
   }).catch(($: any, e: any, next: any) => (next.called ? next(e) : { text: 'canopy could not open: ' + next.error.kind }))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($: any, e: any) => {
-    // Shown again after the ticker stopped (hidden and idle): keep up from here.
+    // Drawn again after the ticker stopped (the pane was hidden): keep up from here.
     ensureTicker($)
     const marks = await read($, marksA)
     const git = await read($, gitA)
@@ -125,16 +125,19 @@ export function register(on: any, options: Partial<Options>) {
 async function boot($: any): Promise<void> {
   try {
     root = normalRoot(await $.session.root())
-    rootName = root.split('/').filter(Boolean).pop() ?? root
-    gitignore = null
-    gitPrefix = await readGitPrefix($)
-    // Cached listings are replaced folder by folder, so the pane never blinks empty.
-    await freshen($)
   } catch {
     root = null
   }
-  booted = true
-  $.ui.invalidate('ui.render')
+  try {
+    if (root === null) return
+    rootName = root.split('/').filter(Boolean).pop() ?? root
+    gitPrefix = await readGitPrefix($)
+    // Cached listings are replaced folder by folder, so the pane never blinks empty.
+    await freshen($)
+  } finally {
+    booted = true
+    $.ui.invalidate('ui.render')
+  }
 }
 
 // Catches up with the disk and the repository: the ignore rules, the open folders, git.
@@ -265,10 +268,7 @@ async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: str
   const now = await $.clock.now()
   const marks = await update($, marksA, (marks: Marks) => markAll(marks, lit, kind, now))
   // The folders above now open; one a scan forgot meanwhile is listed again.
-  for (const rel of lit) for (const dir of ancestors(rel)) if (!(dir in listing) && !listed.has(dir)) {
-    listed.add(dir)
-    await scanDir($, dir)
-  }
+  for (const dir of new Set(lit.flatMap(ancestors))) if (!(dir in listing)) await scanDir($, dir)
   if (settings.follow === 'on' && kind !== 'commit') followTo = lit[lit.length - 1]!
   ensureTicker($)
   return Object.fromEntries(lit.filter((rel) => marks[rel]).map((rel) => [rel, marks[rel]!]))
