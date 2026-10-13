@@ -198,6 +198,20 @@ test('a Write that creates a file shows it', async ($, on) => {
   await ui.unmount()
 })
 
+test('a Write that makes new folders shows them at once', async ($, on) => {
+  const { calls, clock } = stubs(on)
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await clock.advance(1_000)
+  calls.files['/w'] = [dir('newdir'), ...calls.files['/w']!]
+  calls.files['/w/newdir'] = [dir('sub')]
+  calls.files['/w/newdir/sub'] = [file('x.ts')]
+  await $.tool.call({ tool: 'Write', file_path: '/w/newdir/sub/x.ts', content: 'x' })
+  expect((await ui.find({ key: 'row:newdir' }))?.text).toContain('▾ newdir/')
+  expect(piece(await ui.find({ key: 'row:newdir/sub/x.ts' }), 'x.ts')?.props.color).toBe('success')
+  await ui.unmount()
+})
+
 test('a commit turns edited files green', async ($, on) => {
   const { calls } = stubs(on, { git: '## main\0 M src/a.ts\0' })
   await start($)

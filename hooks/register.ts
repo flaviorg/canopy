@@ -6,7 +6,7 @@ import { atom, read, update } from 'claude-code'
 import { allows, anyHot, forget, heat, litDirs, mark, type Activity, type MarkKind, type Marks } from './activity.ts'
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
 import { committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
-import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Ignore, type Listing } from './tree.ts'
+import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
 import { paneLines, type Line, type PaneStatus, type Seg } from './view.ts'
 
 type Options = { start: 'on' | 'off'; activity: Activity; ignore: string; follow: 'on' | 'off' }
@@ -225,9 +225,10 @@ async function readGitPrefix($: any): Promise<string> {
 async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: string): Promise<string[]> {
   if (root === null || !allows(settings.activity, kind)) return []
   const lit: string[] = []
+  const listed = new Set<string>()
   for (const path of paths) {
     const rel = relativeTo(root, path, cwd ?? root)
-    if (rel && !isHidden(rel, ig) && (await showsFile($, rel, kind !== 'read'))) lit.push(rel)
+    if (rel && !isHidden(rel, ig) && (await showsFile($, rel, kind !== 'read', listed))) lit.push(rel)
   }
   if (lit.length === 0) return []
   const now = await $.clock.now()
@@ -237,12 +238,21 @@ async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: str
   return lit
 }
 
-// Whether the tree holds `rel` as a file. Lists the folders above it first (they open as it
-// lights); a write may have just made the file, so its folder is listed again when unknown.
-async function showsFile($: any, rel: string, mayBeNew: boolean): Promise<boolean> {
-  for (const dir of ancestors(rel)) if (!(dir in listing)) await scanDir($, dir)
-  if (!hasEntry(rel, 'file') && mayBeNew) await scanDir($, parentOf(rel))
-  return hasEntry(rel, 'file')
+// Whether the tree holds `rel` as a file. Lists the folders above it first, root down (they
+// open as it lights). A write may have just made the file and folders above it, so a folder
+// whose listing lacks the next step is listed again; `listed` keeps that to once per touch.
+async function showsFile($: any, rel: string, mayBeNew: boolean, listed: Set<string>): Promise<boolean> {
+  const dirs = ancestors(rel)
+  for (let i = 0; i < dirs.length; i++) {
+    const dir = dirs[i]!
+    const holds = () => (i + 1 < dirs.length ? hasEntry(dirs[i + 1]!, 'dir') : hasEntry(rel, 'file'))
+    if (!(dir in listing) || (mayBeNew && !listed.has(dir) && !holds())) {
+      listed.add(dir)
+      await scanDir($, dir)
+    }
+    if (!holds()) return false
+  }
+  return true
 }
 
 // What a finished tool call changed: the file it wrote or read, or what a shell command did.
@@ -386,9 +396,18 @@ async function cwdOf($: any): Promise<string | undefined> {
   }
 }
 
-function hasEntry(rel: string, kind: 'file' | 'dir'): boolean {
-  const name = rel.slice(rel.lastIndexOf('/') + 1)
-  return listing[parentOf(rel)]?.some((entry) => entry.kind === kind && entry.name === name) === true
+// Each listing's names, built on first use: a commit of thousands of files asks once per file.
+const indexes = new WeakMap<readonly Entry[], Map<string, Entry['kind']>>()
+
+function hasEntry(rel: string, kind: Entry['kind']): boolean {
+  const entries = listing[parentOf(rel)]
+  if (entries === undefined) return false
+  let index = indexes.get(entries)
+  if (index === undefined) {
+    index = new Map(entries.map((entry) => [entry.name, entry.kind]))
+    indexes.set(entries, index)
+  }
+  return index.get(rel.slice(rel.lastIndexOf('/') + 1)) === kind
 }
 
 function absolute(rel: string): string {
