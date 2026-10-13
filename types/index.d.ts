@@ -5,8 +5,11 @@
 // the same 'claude-code' module.
 
 declare module 'claude-code' {
-  /** What Claude last did to a file, and how often it read and wrote it this session. */
-  type CanopyMark = { kind: 'read' | 'write' | 'commit'; at: number; reads: number; writes: number }
+  /**
+   * What Claude last did to a file, how often it read and wrote it this session, and its
+   * latest write or commit (which a later read leaves in place).
+   */
+  type CanopyMark = { kind: 'read' | 'write' | 'commit'; at: number; reads: number; writes: number; change?: 'write' | 'commit' }
 
   /** Marks by path relative to the project root. */
   type CanopyMarks = Record<string, CanopyMark>

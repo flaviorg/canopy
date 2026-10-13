@@ -1,5 +1,5 @@
-// canopy's file-type swatches: one colored glyph before each file name, so a glance tells
-// TypeScript from Markdown from config. Pure data, no mods API.
+// canopy's file icons: a colored badge (or, with icons: swatches, a colored glyph) before each
+// file name, so a glance tells TypeScript from Markdown from config. Pure data, no mods API.
 
 export type Swatch = { glyph: string; color: string }
 
@@ -50,4 +50,100 @@ export function swatchFor(name: string): Swatch {
   if (dot <= 0) return DEFAULT
   const color = BY_EXT[lower.slice(dot + 1)]
   return color ? { glyph: '▪', color } : DEFAULT
+}
+
+/**
+ * A badge: a two-cell label on a colored tile, as an editor's file icons look. The tile carries
+ * its own text color, so it reads the same on any theme.
+ */
+export type FileIcon = { label: string; bg: string; fg: string }
+
+/** The tile of a file canopy has no badge for: blank, like a sheet of paper. */
+export const PLAIN_TILE = '#5A5F69'
+
+/** The tile of a type canopy doesn't know: its extension's first letters on gray. */
+export const UNKNOWN_TILE = '#6B7280'
+
+// [label, tile, text]: the label is two cells; the text color is worked out from the tile
+// unless given. Tiles follow each language's brand color.
+type Spec = readonly [label: string, bg: string, fg?: string]
+
+const LOCK: Spec = ['LK', '#6B7280']
+const DOCKER: Spec = ['DK', '#2496ED']
+const GIT: Spec = ['GI', '#F05032']
+const CONFIG: Spec = ['CF', '#6D8086']
+const LICENSE: Spec = ['© ', '#B38F00']
+
+export const BADGE_BY_EXT: Readonly<Record<string, Spec>> = {
+  ts: ['TS', '#3178C6'], mts: ['TS', '#3178C6'], cts: ['TS', '#3178C6'], tsx: ['TS', '#1F9BCF'],
+  js: ['JS', '#F0DB4F'], mjs: ['JS', '#F0DB4F'], cjs: ['JS', '#F0DB4F'], jsx: ['JS', '#1F9BCF'],
+  json: ['{}', '#C9A227'], jsonc: ['{}', '#C9A227'], json5: ['{}', '#C9A227'],
+  md: ['M↓', '#4A6A8A'], mdx: ['M↓', '#4A6A8A'], markdown: ['M↓', '#4A6A8A'], txt: ['TX', '#6B7280'], rst: ['TX', '#6B7280'],
+  css: ['CS', '#663399'], scss: ['SC', '#C6538C'], sass: ['SC', '#C6538C'], less: ['LE', '#1D365D'],
+  html: ['<>', '#E34C26'], htm: ['<>', '#E34C26'], xml: ['<>', '#0060AC'], svg: ['SG', '#FFB13B'],
+  vue: ['VU', '#41B883'], svelte: ['SV', '#FF3E00'], astro: ['AS', '#FF5D01'],
+  py: ['PY', '#3572A5', '#FFD43B'], ipynb: ['NB', '#DA5B0B'], rb: ['RB', '#CC342D'], go: ['GO', '#00ADD8'],
+  rs: ['RS', '#DEA584'], java: ['JV', '#B07219'], kt: ['KT', '#7F52FF'], kts: ['KT', '#7F52FF'],
+  swift: ['SW', '#F05138'], dart: ['DT', '#00B4AB'], c: ['C ', '#5C6BC0'], h: ['H ', '#5C6BC0'],
+  cpp: ['C+', '#F34B7D'], cc: ['C+', '#F34B7D'], cxx: ['C+', '#F34B7D'], hpp: ['H+', '#F34B7D'], cs: ['C#', '#178600'],
+  php: ['PH', '#777BB4'], lua: ['LU', '#000080'], ex: ['EX', '#6E4A7E'], exs: ['EX', '#6E4A7E'], zig: ['ZG', '#EC915C'],
+  sh: ['$_', '#4EAA25'], bash: ['$_', '#4EAA25'], zsh: ['$_', '#4EAA25'], fish: ['$_', '#4EAA25'], ps1: ['PS', '#012456'],
+  yml: ['YM', '#CB171E'], yaml: ['YM', '#CB171E'], toml: ['TO', '#9C4221'], ini: CONFIG, cfg: CONFIG, conf: CONFIG,
+  env: ['EN', '#ECD53F'], sql: ['SQ', '#E38C00'], prisma: ['PR', '#2D3748'], graphql: ['GQ', '#E10098'], gql: ['GQ', '#E10098'],
+  proto: ['PB', '#4285F4'], csv: ['CV', '#237346'], tsv: ['CV', '#237346'],
+  png: ['IM', '#8E5BB5'], jpg: ['IM', '#8E5BB5'], jpeg: ['IM', '#8E5BB5'], gif: ['IM', '#8E5BB5'], webp: ['IM', '#8E5BB5'],
+  ico: ['IM', '#8E5BB5'], bmp: ['IM', '#8E5BB5'], avif: ['IM', '#8E5BB5'],
+  mp4: ['VD', '#8E5BB5'], mov: ['VD', '#8E5BB5'], webm: ['VD', '#8E5BB5'], mp3: ['AU', '#8E5BB5'], wav: ['AU', '#8E5BB5'],
+  ogg: ['AU', '#8E5BB5'], flac: ['AU', '#8E5BB5'], pdf: ['PD', '#E5252A'],
+  lock: LOCK, log: ['LG', '#6B7280'], zip: ['ZP', '#6B7280'], gz: ['ZP', '#6B7280'], tar: ['ZP', '#6B7280'], tgz: ['ZP', '#6B7280'],
+}
+
+export const BADGE_BY_NAME: Readonly<Record<string, Spec>> = {
+  'package.json': ['{}', '#CB3837'], 'tsconfig.json': ['{}', '#3178C6'],
+  'package-lock.json': LOCK, 'yarn.lock': LOCK, 'pnpm-lock.yaml': LOCK, 'bun.lock': LOCK, 'bun.lockb': LOCK,
+  dockerfile: DOCKER, 'docker-compose.yml': DOCKER, 'docker-compose.yaml': DOCKER, 'compose.yml': DOCKER, 'compose.yaml': DOCKER,
+  makefile: ['MK', '#6D8086'], license: LICENSE, 'license.md': LICENSE, 'license.txt': LICENSE,
+  '.gitignore': GIT, '.gitattributes': GIT, '.gitmodules': GIT,
+  '.editorconfig': CONFIG, '.prettierrc': CONFIG, '.npmrc': CONFIG, '.nvmrc': CONFIG,
+  'claude.md': ['CL', '#D97757'],
+}
+
+/**
+ * The badge for a file name: special names first, then the extension. An extension canopy
+ * doesn't know shows its first two letters on gray; a name with none, a blank tile.
+ */
+export function iconFor(name: string): FileIcon {
+  const lower = name.toLowerCase()
+  const spec = BADGE_BY_NAME[lower] ?? (lower.startsWith('.env') ? BADGE_BY_EXT['env'] : undefined) ?? byExt(lower)
+  return { label: spec[0], bg: spec[1], fg: spec[2] ?? textOn(spec[1]) }
+}
+
+function byExt(lower: string): Spec {
+  const dot = lower.lastIndexOf('.')
+  if (dot <= 0) return ['  ', PLAIN_TILE]
+  const ext = lower.slice(dot + 1)
+  const known = BADGE_BY_EXT[ext]
+  if (known) return known
+  // Only letters and digits make a label: anything else could be wide or unprintable.
+  return /^[a-z0-9]+$/.test(ext) ? [ext.slice(0, 2).toUpperCase().padEnd(2), UNKNOWN_TILE] : ['  ', PLAIN_TILE]
+}
+
+/** White on a tile dark enough for it (3:1, as for bold text), else near-black. */
+export function textOn(bg: string): string {
+  return contrast('#FFFFFF', bg) >= 3 ? '#FFFFFF' : '#1A1A1A'
+}
+
+/** WCAG contrast ratio of two #rrggbb colors. */
+export function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi! + 0.05) / (lo! + 0.05)
+}
+
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16)
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
 }

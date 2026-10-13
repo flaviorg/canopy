@@ -6,18 +6,15 @@
 // guides), then, when it has a right side, a growing spacer and the right segments. A segment
 // with no style is drawn as a bare string; a styled one as a Text.
 import type { Row } from './tree.ts'
-import { anyHot, heat, hotCounts, summary, type Activity, type Mark, type Marks } from './activity.ts'
+import { rollup, stateOf, tally, type Activity, type FileState, type Marks } from './activity.ts'
 import { badgeFor, rollupAll, type Badge, type GitState } from './git.ts'
-import { swatchFor } from './filetypes.ts'
+import { iconFor, swatchFor } from './filetypes.ts'
 
 /**
- * canopy's one color, for what is live: the header spinner and activity inside closed folders.
- * A mid green that reads on light and dark themes alike.
+ * `keep`: the end of a left side a cut leaves whole while it can (a closed folder's count).
+ * `bg`: a tile behind the text (a file's badge).
  */
-export const ACCENT = '#49A665'
-
-/** `keep`: the end of a left side a cut leaves whole while it can (a closed folder's count). */
-export type Seg = { text: string; color?: string; bold?: true; dim?: true; keep?: true }
+export type Seg = { text: string; color?: string; bg?: string; bold?: true; dim?: true; keep?: true }
 /**
  * One row of the pane: `lead`, then `left`, then `right` at the edge. `toggle` is the folder a
  * press on `left` opens or closes.
@@ -31,7 +28,10 @@ export type ViewInput = {
   frame: number
   width: number
   activity: Activity
+  /** How a file's type shows: a two-letter badge (the default) or a small colored glyph. */
+  icons?: Icons
 }
+export type Icons = 'badges' | 'swatches'
 export type PaneStatus = 'loading' | 'ready' | 'empty' | 'unreadable'
 
 export const SPIN: readonly string[] = ['◐', '◓', '◑', '◒']
@@ -49,6 +49,35 @@ export const CHAR_BUDGET = 95_000
 
 const BADGE_COLOR: Record<Badge, string> = { M: 'warning', A: 'success', D: 'error', R: 'suggestion', U: 'success' }
 
+/**
+ * Each state's color: Claude's own while it writes, then git's for what waits for a commit
+ * (yellow, like M) and what landed (green); blue for reading. Theme keys, so they follow the
+ * person's theme.
+ */
+export const STATE_COLOR: Readonly<Record<FileState, string>> = {
+  editing: 'claude', edited: 'warning', committed: 'success', reading: 'suggestion', read: 'suggestion',
+}
+
+/**
+ * The glyph a state draws in a row's activity column: a pencil pulsing bright and dim while
+ * Claude writes, a dot for a change not yet committed, a check once committed, a quarter moon
+ * turning while Claude reads, a ring once read.
+ */
+export function stateGlyph(state: FileState, frame: number): Seg {
+  switch (state) {
+    case 'editing':
+      return { text: '✎', color: STATE_COLOR.editing, ...(frame % 2 === 0 ? {} : { dim: true as const }) }
+    case 'edited':
+      return { text: '●', color: STATE_COLOR.edited }
+    case 'committed':
+      return { text: '✓', color: STATE_COLOR.committed }
+    case 'reading':
+      return { text: pick(SPIN, frame), color: STATE_COLOR.reading }
+    case 'read':
+      return { text: '○', color: STATE_COLOR.read }
+  }
+}
+
 /** A folder's roll-up of the badges inside it: a small dot in the worst one's color, never ● (editing). */
 export const ROLLUP = '•'
 
@@ -56,18 +85,19 @@ export const ROLLUP = '•'
 const BRANCH_MIN = 6
 
 /**
- * `◆ canopy · ⎇ main · ✎ 3 · ◉ 2`, and a spinner on the right while anything is hot. Only the
- * branch is cut to fit, since the counts are what change; and the spinner's two cells are
- * always left free, so the line never moves when it comes and goes.
+ * `◆ canopy · ⎇ main · ● 3 · ✓ 1 · ○ 2` (changed, committed, read), and a spinner on the right
+ * while Claude is reading or writing a file. Only the branch is cut to fit, since the counts
+ * are what change; and the spinner's two cells are always left free, so the line never moves
+ * when it comes and goes.
  */
 export function headerLine(input: ViewInput): Line {
-  const marks = shown(input.marks, input.activity)
-  const { edited, read } = summary(marks)
+  const { edited, committed, read } = tally(input.marks, input.now, input.activity)
   const title: Seg = { text: '◆ canopy', bold: true }
   const dot: Seg = { text: ' · ', dim: true }
   const counts: Seg[] = []
-  if (edited > 0) counts.push(dot, { text: '✎ ' + edited, color: 'success' })
-  if (read > 0) counts.push(dot, { text: '◉ ' + read, color: 'suggestion' })
+  if (edited > 0) counts.push(dot, { text: '● ' + edited, color: STATE_COLOR.edited })
+  if (committed > 0) counts.push(dot, { text: '✓ ' + committed, color: STATE_COLOR.committed })
+  if (read > 0) counts.push(dot, { text: '○ ' + read, color: STATE_COLOR.read })
   const left: Seg[] = [title]
   if (input.git.branch !== null) {
     const room = input.width - 2 - cells(title.text + dot.text + '⎇ ') - cellsIn(counts)
@@ -76,8 +106,16 @@ export function headerLine(input: ViewInput): Line {
     else if (room >= BRANCH_MIN) left.push(dot, { text: '⎇ ' + take(branch, room - 1) + '…', dim: true })
   }
   left.push(...counts)
-  const right: Seg[] = anyHot(marks, input.now) ? [{ text: pick(BRAILLE, input.frame), color: ACCENT }] : []
+  const right: Seg[] = working(input) ? [{ text: pick(BRAILLE, input.frame), color: STATE_COLOR.editing }] : []
   return { key: 'header', left: merge(left), right }
+}
+
+// Whether Claude is reading or writing a file right now, as the activity option shows it.
+function working(input: ViewInput): boolean {
+  return Object.values(input.marks).some((m) => {
+    const state = stateOf(m, input.now, input.activity)
+    return state === 'editing' || state === 'reading'
+  })
 }
 
 /** A row's key: 'row:' + its path ('row:' is the root), drawable as any text is. */
@@ -95,10 +133,9 @@ export function printable(text: string): string {
 
 /** One line per row, keyed by rowKey(). */
 export function treeLines(input: ViewInput): Line[] {
-  const marks = shown(input.marks, input.activity)
   const slots = hasGit(input.git)
   // Folder facts come from one pass each, not one scan per folder row.
-  const inside = hotCounts(marks, input.now)
+  const inside = rollup(input.marks, input.now, input.activity)
   const badgeOf = rollupAll(input.git.files)
   const guides = guidesFor(input.width, slots)
   return input.rows.map((row): Line => {
@@ -110,9 +147,9 @@ export function treeLines(input: ViewInput): Line[] {
           right: column(null, badgeOf(''), slots, ROLLUP),
         }
       case 'dir':
-        return dirLine({ ...row, guides: guides(row.guides) }, row.expanded ? 0 : inside.get(row.path) ?? 0, badgeOf(row.path), slots)
+        return dirLine({ ...row, guides: guides(row.guides) }, row.expanded ? null : inside.get(row.path) ?? null, badgeOf(row.path), slots, input.frame)
       case 'file':
-        return fileLine({ ...row, guides: guides(row.guides) }, marks[row.path], input, slots)
+        return fileLine({ ...row, guides: guides(row.guides) }, stateOf(input.marks[row.path], input.now, input.activity), input, slots)
       case 'more':
         return { key: 'more:' + printable(row.path), left: [{ text: guides(row.guides) + `… ${row.count} more`, dim: true }], right: [] }
     }
@@ -131,41 +168,42 @@ function guidesFor(width: number, slots: boolean): (guides: string) => string {
   return (guides) => (guides.length <= pieces * 3 ? guides : DEEPER + guides.slice(guides.length - (pieces - 1) * 3))
 }
 
-// `inside`: hot or warm files inside a closed folder, so it says how much is happening there.
-function dirLine(row: Extract<Row, { type: 'dir' }>, inside: number, badge: Badge | null, slots: boolean): Line {
-  const left: Seg[] = [{ text: row.expanded ? '▾ ' : '▸ ', dim: true }, { text: printable(row.name) + '/', bold: true }]
-  if (inside > 0) left.push({ text: ' ·' + inside, color: ACCENT, keep: true })
-  return { key: rowKey(row.path), lead: [{ text: row.guides, dim: true }], left, right: column(null, badge, slots, ROLLUP), toggle: row.path }
+// `inside`: a closed folder's strongest state and how many files inside share it, so the work
+// in there stays in sight; null for an open folder (its rows show it) or a quiet one.
+function dirLine(row: Extract<Row, { type: 'dir' }>, inside: { state: FileState; count: number } | null, badge: Badge | null, slots: boolean, frame: number): Line {
+  const color = inside ? STATE_COLOR[inside.state] : undefined
+  const left: Seg[] = [{ text: row.expanded ? '▾ ' : '▸ ', dim: true }, { text: printable(row.name) + '/', bold: true, ...(color ? { color } : {}) }]
+  if (inside) left.push({ text: ' ·' + inside.count, color, keep: true })
+  const glyph = inside ? stateGlyph(inside.state, frame) : null
+  return { key: rowKey(row.path), lead: [{ text: row.guides, dim: true }], left, right: column(glyph, badge, slots, ROLLUP), toggle: row.path }
 }
 
-function fileLine(row: Extract<Row, { type: 'file' }>, m: Mark | undefined, input: ViewInput, slots: boolean): Line {
-  const swatch = swatchFor(row.name)
-  const look = activityLook(m, input.now, input.frame)
+function fileLine(row: Extract<Row, { type: 'file' }>, state: FileState | null, input: ViewInput, slots: boolean): Line {
   const badge = badgeFor(input.git.files, row.path)
-  const name: Seg = { text: printable(row.name), ...look.name, ...(badge === 'D' ? { color: 'error' } : {}) }
+  const name: Seg = { text: printable(row.name), ...nameLook(state), ...(badge === 'D' ? { color: 'error' } : {}) }
   return {
     key: rowKey(row.path),
     lead: [{ text: row.guides, dim: true }],
-    left: merge([{ text: swatch.glyph + ' ', color: swatch.color }, name]),
-    right: column(look.glyph, badge, slots),
+    left: merge([...iconSegs(row.name, input.icons ?? 'badges'), name]),
+    right: column(state ? stateGlyph(state, input.frame) : null, badge, slots),
   }
 }
 
-type Look = { name: Omit<Seg, 'text'>; glyph: Seg | null }
+// A file's name in its state's color, bold while Claude writes it. A file only read keeps its
+// plain name: the ring beside it says enough.
+function nameLook(state: FileState | null): Omit<Seg, 'text'> {
+  if (state === null || state === 'read') return {}
+  return state === 'editing' ? { color: STATE_COLOR.editing, bold: true } : { color: STATE_COLOR[state] }
+}
 
-// How a mark shows: hot moves (a write's dot pulses bright and dim, a read spins), warm keeps
-// the color, a commit keeps its check for the whole minute. The pulse keeps one glyph, so ●
-// always means editing and ◉ (the header's count) always means read.
-function activityLook(m: Mark | undefined, now: number, frame: number): Look {
-  const h = heat(m, now)
-  if (!m || h === 'cold') return { name: {}, glyph: null }
-  if (m.kind === 'commit') return { name: { color: 'success' }, glyph: { text: '✓', color: 'success' } }
-  if (m.kind === 'write') {
-    if (h === 'warm') return { name: { color: 'success' }, glyph: null }
-    return { name: { color: 'success', bold: true }, glyph: { text: '●', color: 'success', ...(frame % 2 === 0 ? {} : { dim: true as const }) } }
+// The icon before a name: a bold two-letter badge on its tile and a space, or a swatch.
+function iconSegs(name: string, icons: Icons): Seg[] {
+  if (icons === 'swatches') {
+    const swatch = swatchFor(name)
+    return [{ text: swatch.glyph + ' ', color: swatch.color }]
   }
-  if (h === 'warm') return { name: {}, glyph: { text: '·', color: 'suggestion' } }
-  return { name: { color: 'suggestion' }, glyph: { text: pick(SPIN, frame), color: 'suggestion' } }
+  const icon = iconFor(name)
+  return [{ text: icon.label, color: icon.fg, bg: icon.bg, bold: true }, { text: ' ' }]
 }
 
 // The right side. In a repository it is two columns, activity then badge, so badges line up
@@ -180,17 +218,15 @@ function column(glyph: Seg | null, badge: Badge | null, slots: boolean, badgeGly
 }
 
 /**
- * The key to the glyphs: activity (as the option allows), then git's letters in a repository.
- * Entries are packed into as many lines as `width` needs; an entry is never cut in two.
+ * The key to the glyphs: what Claude changed, what it read (as the activity option allows),
+ * then git's letters in a repository. Each group is packed into as many lines as `width`
+ * needs; an entry is never cut in two.
  */
 export function legendLines(activity: Activity, git: boolean, width = Infinity): Line[] {
   const lines: Line[] = []
-  if (activity !== 'none') {
-    const items: Array<[Seg, string]> = [[{ text: '●', color: 'success' }, 'editing']]
-    if (activity === 'all') items.push([{ text: '◐', color: 'suggestion' }, 'reading'])
-    items.push([{ text: '✓', color: 'success' }, 'committed'])
-    lines.push(...pack('legend', items, width))
-  }
+  const entry = (state: FileState): [Seg, string] => [stateGlyph(state, 0), state]
+  if (activity !== 'none') lines.push(...pack('legend', [entry('editing'), entry('edited'), entry('committed')], width))
+  if (activity === 'all') lines.push(...pack('legend:read', [entry('reading'), entry('read')], width))
   if (git) {
     const label: Record<Badge, string> = { M: 'modified', A: 'added', U: 'untracked', D: 'deleted', R: 'renamed' }
     const items = (['M', 'A', 'U', 'D', 'R'] as const).map((b): [Seg, string] => [
@@ -367,22 +403,15 @@ function merge(segs: Seg[]): Seg[] {
   for (const seg of segs) {
     if (!seg.text) continue
     const last = out[out.length - 1]
-    const same = last && last.color === seg.color && last.bold === seg.bold && last.dim === seg.dim && last.keep === seg.keep
+    const same = last && last.color === seg.color && last.bg === seg.bg && last.bold === seg.bold && last.dim === seg.dim && last.keep === seg.keep
     if (same) out[out.length - 1] = { ...last, text: last.text + seg.text }
     else out.push(seg)
   }
   return out
 }
 
-function isPlain(seg: Seg): boolean {
-  return seg.color === undefined && !seg.bold && !seg.dim
-}
-
-// The marks the `activity` option lets show: none, writes and commits only, or all.
-function shown(marks: Marks, activity: Activity): Marks {
-  if (activity === 'all') return marks
-  if (activity === 'none') return {}
-  return Object.fromEntries(Object.entries(marks).filter(([, m]) => m.kind !== 'read'))
+export function isPlain(seg: Seg): boolean {
+  return seg.color === undefined && seg.bg === undefined && !seg.bold && !seg.dim
 }
 
 function hasGit(git: GitState): boolean {

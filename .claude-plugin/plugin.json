@@ -34,6 +34,13 @@
       "description": "Scroll to the file Claude is touching.",
       "default": "on",
       "options": ["on", "off"]
+    },
+    "icons": {
+      "type": "string",
+      "title": "Icons",
+      "description": "badges: a two-letter tile in each file type's color (TS, JS, {}, M↓…). swatches: a small colored square.",
+      "default": "badges",
+      "options": ["badges", "swatches"]
     }
   }
 }

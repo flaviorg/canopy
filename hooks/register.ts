@@ -7,9 +7,9 @@ import { allows, anyHot, heat, litDirs, markAll, unread, type Activity, type Mar
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
 import { COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
 import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
-import { paneLines, printable, rowKey, type Line, type PaneStatus, type Seg } from './view.ts'
+import { isPlain, paneLines, printable, rowKey, type Icons, type Line, type PaneStatus, type Seg } from './view.ts'
 
-type Options = { start: 'on' | 'off'; activity: Activity; ignore: string; follow: 'on' | 'off' }
+type Options = { start: 'on' | 'off'; activity: Activity; ignore: string; follow: 'on' | 'off'; icons: Icons }
 
 const PANE = 'canopy'
 const DOCK_COLUMNS = 44
@@ -27,7 +27,7 @@ const expandedA = atom({ plugin: 'canopy', key: 'expanded' } as const, [] as str
 const collapsedA = atom({ plugin: 'canopy', key: 'collapsed' } as const, [] as string[])
 
 // Module state: rebuilt by scanning, so losing it to a reload costs one rescan.
-let settings: Options = { start: 'on', activity: 'all', ignore: '', follow: 'on' }
+let settings: Options = { start: 'on', activity: 'all', ignore: '', follow: 'on', icons: 'badges' }
 let root: string | null = null
 let booted = false // a first scan has finished (until then the pane says it is reading)
 let rootName = ''
@@ -98,6 +98,9 @@ export function register(on: any, options: Partial<Options>) {
       await $.ui.close({ id: PANE })
       return {}
     }
+    // Open behind another pane's tab: an open only retitles it, so close it and open it again
+    // to bring it to the front.
+    if (pane) await $.ui.close({ id: PANE })
     if (root === null) await boot($)
     else await freshen($)
     await openPane($)
@@ -113,11 +116,13 @@ export function register(on: any, options: Partial<Options>) {
     const now = await $.clock.now()
     const open = openSet(marks, await read($, expandedA), await read($, collapsedA), now)
     const rows = flatten(rootName, listing, (rel) => open.has(rel))
-    const width = e.props?.bodyColumns ?? DOCK_COLUMNS
-    const lines = paneLines({ rows, marks, git, now, frame, width, activity: settings.activity }, paneStatus(), root ?? 'the project folder')
+    // A dock draws the body flush against its edge: one cell of air on the left.
+    const dock = e.props?.placement === 'dock'
+    const width = Math.max(0, (e.props?.bodyColumns ?? DOCK_COLUMNS) - (dock ? 1 : 0))
+    const lines = paneLines({ rows, marks, git, now, frame, width, activity: settings.activity, icons: settings.icons }, paneStatus(), root ?? 'the project folder')
     const elements = $.ui.resolve(e)
     const toggle = (dir: string) => toggleDir($, dir)
-    return elements.Box({ flexDirection: 'column', children: lines.map((line) => drawLine(elements, line, toggle)) })
+    return elements.Box({ flexDirection: 'column', ...(dock ? { paddingLeft: 1 } : {}), children: lines.map((line) => drawLine(elements, line, toggle)) })
   })
 }
 
@@ -413,9 +418,10 @@ function drawLine(elements: any, line: Line, toggle: (dir: string) => void): any
 // A plain segment is a bare string (one element fewer); a styled one is a Text with only the
 // props it sets.
 function drawSeg(elements: any, seg: Seg): any {
-  if (seg.color === undefined && !seg.bold && !seg.dim) return seg.text
+  if (isPlain(seg)) return seg.text
   return elements.Text({
     ...(seg.color !== undefined ? { color: seg.color } : {}),
+    ...(seg.bg !== undefined ? { backgroundColor: seg.bg } : {}),
     ...(seg.bold ? { bold: true } : {}),
     ...(seg.dim ? { dimColor: true } : {}),
     children: [seg.text],

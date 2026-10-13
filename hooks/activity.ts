@@ -1,13 +1,24 @@
 // canopy's activity model: what Claude did to each file and how recently. A mark is hot for
-// 8 seconds (it moves on screen), warm for a minute after (it keeps its color), then cold.
+// 8 seconds (it moves on screen) and warm for a minute after (its folders stay open). What a
+// file went through stays for the whole session: edited, committed or read (see stateOf).
 // Pure, no mods API.
 import { ancestors } from './tree.ts'
 
 export type MarkKind = 'read' | 'write' | 'commit'
-export type Mark = { kind: MarkKind; at: number; reads: number; writes: number }
+/**
+ * `kind` and `at`: Claude's latest touch. `change`: its latest write or commit, which a later
+ * read leaves in place, so an edited file still reads as edited after Claude looks at it again.
+ */
+export type Mark = { kind: MarkKind; at: number; reads: number; writes: number; change?: 'write' | 'commit' }
 export type Marks = Record<string, Mark>
 export type Heat = 'hot' | 'warm' | 'cold'
 export type Activity = 'all' | 'writes' | 'none'
+
+/**
+ * Where a file stands this session, strongest first: Claude is writing it now, changed it and
+ * hasn't committed, committed it, is reading it now, or read it.
+ */
+export type FileState = 'editing' | 'edited' | 'committed' | 'reading' | 'read'
 
 export const HOT_MS = 8_000
 export const WARM_MS = 60_000
@@ -34,7 +45,17 @@ function touched(prev: Mark | undefined, kind: MarkKind, now: number): Mark {
   const reads = (prev?.reads ?? 0) + (kind === 'read' ? 1 : 0)
   const writes = (prev?.writes ?? 0) + (kind === 'write' ? 1 : 0)
   const keepWrite = kind === 'read' && prev?.kind === 'write' && heat(prev, now) === 'hot'
-  return keepWrite ? { ...prev!, reads } : { kind, at: now, reads, writes }
+  if (keepWrite) return { ...prev!, reads }
+  const change = kind === 'read' ? changeOf(prev) : kind
+  return change ? { kind, at: now, reads, writes, change } : { kind, at: now, reads, writes }
+}
+
+/** A mark's latest write or commit; marks kept from before `change` existed say it by kind. */
+export function changeOf(m: Mark | undefined): 'write' | 'commit' | undefined {
+  if (!m) return undefined
+  if (m.change) return m.change
+  if (m.kind !== 'read') return m.kind
+  return m.writes > 0 ? 'write' : undefined
 }
 
 /**
@@ -55,23 +76,23 @@ export function unread(marks: Marks, left: Marks, earlier: Marks): Marks {
       continue
     }
     const reads = Math.max(0, now.reads - 1)
-    if (now.kind === 'read' && reads === 0 && now.writes === 0) delete out[path]
+    if (now.kind === 'read' && reads === 0 && !changeOf(now)) delete out[path]
     else out[path] = { ...now, reads }
   }
   return out
 }
 
 function sameMark(a: Mark, b: Mark): boolean {
-  return a.kind === b.kind && a.at === b.at && a.reads === b.reads && a.writes === b.writes
+  return a.kind === b.kind && a.at === b.at && a.reads === b.reads && a.writes === b.writes && a.change === b.change
 }
 
-// Keeps MAX_MARKS: past it the oldest go, cold before hot or warm, whatever lit them.
+// Keeps MAX_MARKS: past it the oldest go, cold reads first, then cold changes, then the rest.
 function prune(marks: Marks, now: number): Marks {
   const extra = Object.keys(marks).length - MAX_MARKS
   if (extra <= 0) return marks
-  const live = (m: Mark) => (heat(m, now) === 'cold' ? 0 : 1)
+  const keep = (m: Mark) => (heat(m, now) !== 'cold' ? 2 : changeOf(m) ? 1 : 0)
   const oldest = Object.entries(marks)
-    .sort((a, b) => live(a[1]) - live(b[1]) || a[1].at - b[1].at)
+    .sort((a, b) => keep(a[1]) - keep(b[1]) || a[1].at - b[1].at)
     .slice(0, extra)
   for (const [path] of oldest) delete marks[path]
   return marks
@@ -84,15 +105,52 @@ export function heat(m: Mark | undefined, now: number): Heat {
   return age < HOT_MS + WARM_MS ? 'warm' : 'cold'
 }
 
-/** Files edited this session, and files only read. */
-export function summary(marks: Marks): { edited: number; read: number } {
-  let edited = 0
-  let read = 0
+/**
+ * Where a file stands, as the `activity` option lets it show: 'writes' leaves reads out (a
+ * file Claude is reading shows what it changed there, if anything), 'none' shows nothing.
+ */
+export function stateOf(m: Mark | undefined, now: number, activity: Activity = 'all'): FileState | null {
+  if (!m || activity === 'none') return null
+  const hot = heat(m, now) === 'hot'
+  if (hot && m.kind === 'write') return 'editing'
+  if (hot && m.kind === 'read' && activity === 'all') return 'reading'
+  const change = changeOf(m)
+  if (change === 'commit') return 'committed'
+  if (change === 'write') return 'edited'
+  return activity === 'all' && m.reads > 0 ? 'read' : null
+}
+
+/** Strongest first: what is happening now, then what waits for a commit, then the rest. */
+export const STATE_RANK: Readonly<Record<FileState, number>> = { editing: 5, reading: 4, edited: 3, committed: 2, read: 1 }
+
+/** Files Claude changed and hasn't committed (editing or edited), committed, and only read. */
+export function tally(marks: Marks, now: number, activity: Activity = 'all'): { edited: number; committed: number; read: number } {
+  const out = { edited: 0, committed: 0, read: 0 }
   for (const m of Object.values(marks)) {
-    if (m.writes > 0) edited++
-    else if (m.reads > 0) read++
+    const state = stateOf(m, now, activity)
+    if (state === 'editing' || state === 'edited') out.edited++
+    else if (state === 'committed') out.committed++
+    else if (state === 'reading' || state === 'read') out.read++
   }
-  return { edited, read }
+  return out
+}
+
+/**
+ * Every folder's strongest state inside it, and how many files inside share it, in one pass
+ * ('' is the whole tree). A closed folder shows it, so the work inside stays in sight.
+ */
+export function rollup(marks: Marks, now: number, activity: Activity = 'all'): Map<string, { state: FileState; count: number }> {
+  const out = new Map<string, { state: FileState; count: number }>()
+  for (const [path, m] of Object.entries(marks)) {
+    const state = stateOf(m, now, activity)
+    if (state === null) continue
+    for (const dir of ancestors(path)) {
+      const was = out.get(dir)
+      if (!was || STATE_RANK[state] > STATE_RANK[was.state]) out.set(dir, { state, count: 1 })
+      else if (was.state === state) was.count++
+    }
+  }
+  return out
 }
 
 export function anyHot(marks: Marks, now: number): boolean {

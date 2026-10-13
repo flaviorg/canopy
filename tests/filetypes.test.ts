@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { BY_EXT, BY_NAME, swatchFor } from '../hooks/filetypes.ts'
-import { ACCENT } from '../hooks/view.ts'
+import { BADGE_BY_EXT, BADGE_BY_NAME, BY_EXT, BY_NAME, contrast, iconFor, PLAIN_TILE, swatchFor, textOn, UNKNOWN_TILE } from '../hooks/filetypes.ts'
+import { cells } from '../hooks/view.ts'
 
 test('swatches by name and extension', async () => {
   expect(swatchFor('a.ts')).toEqual({ glyph: '▪', color: '#3178C6' })
@@ -11,22 +11,44 @@ test('swatches by name and extension', async () => {
   expect(swatchFor('IMG.PNG').color).toBe('#B088A9')
 })
 
-// WCAG relative luminance and contrast ratio.
-function contrast(a: string, b: string): number {
-  const lum = (hex: string) => {
-    const n = parseInt(hex.slice(1), 16)
-    const [r, g, bl] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => {
-      const c = v / 255
-      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-    })
-    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!
-  }
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi! + 0.05) / (lo! + 0.05)
-}
+test('contrast is the WCAG ratio', async () => {
+  expect(Math.round(contrast('#FFFFFF', '#000000'))).toBe(21)
+  expect(contrast('#777777', '#777777')).toBe(1)
+  expect(textOn('#3178C6')).toBe('#FFFFFF')
+  expect(textOn('#F0DB4F')).toBe('#1A1A1A')
+})
 
-test('every swatch and the accent read on light and dark themes', async () => {
-  const colors = new Set([...Object.values(BY_EXT), ...Object.values(BY_NAME).map((s) => s.color), ACCENT])
+test('badges by name and extension', async () => {
+  expect(iconFor('a.ts')).toEqual({ label: 'TS', bg: '#3178C6', fg: '#FFFFFF' })
+  expect(iconFor('Button.TSX').label).toBe('TS')
+  expect(iconFor('Button.tsx').bg).not.toBe(iconFor('a.ts').bg)
+  expect(iconFor('index.js')).toEqual({ label: 'JS', bg: '#F0DB4F', fg: '#1A1A1A' })
+  expect(iconFor('package.json')).toEqual({ label: '{}', bg: '#CB3837', fg: '#FFFFFF' })
+  expect(iconFor('README.md').label).toBe('M↓')
+  expect(iconFor('Dockerfile').label).toBe('DK')
+  expect(iconFor('.env.local').label).toBe('EN')
+  expect(iconFor('main.py')).toEqual({ label: 'PY', bg: '#3572A5', fg: '#FFD43B' })
+  // An unknown extension shows its first letters; no extension, or an odd one, a blank tile.
+  expect(iconFor('data.xyz')).toEqual({ label: 'XY', bg: UNKNOWN_TILE, fg: textOn(UNKNOWN_TILE) })
+  expect(iconFor('notes.q').label).toBe('Q ')
+  expect(iconFor('NOTES')).toEqual({ label: '  ', bg: PLAIN_TILE, fg: textOn(PLAIN_TILE) })
+  expect(iconFor('.prettierrc').label).toBe('CF')
+  expect(iconFor('.hidden').label).toBe('  ')
+  expect(iconFor('a.漢字').label).toBe('  ')
+  expect(iconFor('a.\u001b[').label).toBe('  ')
+})
+
+test('every badge is two cells, and its text reads on its tile', async () => {
+  const specs = [...Object.values(BADGE_BY_EXT), ...Object.values(BADGE_BY_NAME), ['  ', PLAIN_TILE] as const, ['XY', UNKNOWN_TILE] as const]
+  for (const [label, bg, fg] of specs) {
+    expect(cells(label)).toBe(2)
+    const text = fg ?? textOn(bg)
+    if (contrast(text, bg) < 3) throw new Error(`${label} on ${bg}: ${contrast(text, bg).toFixed(2)}`)
+  }
+})
+
+test('every swatch reads on light and dark themes', async () => {
+  const colors = new Set([...Object.values(BY_EXT), ...Object.values(BY_NAME).map((s) => s.color)])
   for (const color of colors) {
     if (!color.startsWith('#')) continue
     for (const background of ['#FFFFFF', '#1E1E1E']) {

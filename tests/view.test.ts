@@ -1,10 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 import { flatten, type Listing } from '../hooks/tree.ts'
-import { mark, type Marks } from '../hooks/activity.ts'
+import { HOT_MS, mark, type Marks } from '../hooks/activity.ts'
 import { NO_GIT, type GitState } from '../hooks/git.ts'
 import {
-  ACCENT, BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, printable, ROLLUP, rowKey, SPIN,
-  treeLines,
+  BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, printable, ROLLUP, rowKey, SPIN,
+  STATE_COLOR, stateGlyph, treeLines,
   type Line, type Seg, type ViewInput,
 } from '../hooks/view.ts'
 
@@ -36,11 +36,16 @@ test('header shows branch and counts', async () => {
   marks = mark(marks, 'README.md', 'read', NOW)
   const header = headerLine(input({ marks, git: { branch: 'main', files: {} } }))
   expect(header.key).toBe('header')
-  expect(text(header.left)).toBe('◆ canopy · ⎇ main · ✎ 1 · ◉ 1')
+  expect(text(header.left)).toBe('◆ canopy · ⎇ main · ● 1 · ○ 1')
   expect(header.left[0]).toEqual({ text: '◆ canopy', bold: true })
-  expect(segWith(header.left, '✎')?.color).toBe('success')
-  expect(segWith(header.left, '◉')?.color).toBe('suggestion')
-  expect(header.right).toEqual([{ text: BRAILLE[0], color: ACCENT }])
+  expect(segWith(header.left, '●')?.color).toBe('warning')
+  expect(segWith(header.left, '○')?.color).toBe('suggestion')
+  expect(header.right).toEqual([{ text: BRAILLE[0], color: 'claude' }])
+  // Committed files count apart; the counts outlast the motion.
+  const later = headerLine(input({ marks: mark(marks, 'package.json', 'commit', NOW), git: { branch: 'main', files: {} }, now: NOW + 3_600_000 }))
+  expect(text(later.left)).toBe('◆ canopy · ⎇ main · ● 1 · ✓ 1 · ○ 1')
+  expect(segWith(later.left, '✓')?.color).toBe('success')
+  expect(later.right).toEqual([])
   // Quiet: no branch outside git, no counts, no spinner.
   const quiet = headerLine(input({ now: NOW }))
   expect(text(quiet.left)).toBe('◆ canopy')
@@ -52,21 +57,21 @@ test('a long branch is cut before the counts are, and the spinner never moves th
   marks = mark(marks, 'README.md', 'read', NOW)
   const git: GitState = { branch: 'feature/PROJ-1234-add-the-new-onboarding-flow', files: {} }
   const hot = headerLine(input({ marks, git }))
-  expect(text(hot.left)).toBe('◆ canopy · ⎇ feature/PROJ-123… · ✎ 1 · ◉ 1')
+  expect(text(hot.left)).toBe('◆ canopy · ⎇ feature/PROJ-123… · ● 1 · ○ 1')
   expect(cells(text(hot.left)) + 2).toBe(44)
   expect(text(headerLine(input({ marks, git, now: NOW + 20_000 })).left)).toBe(text(hot.left))
   // Too narrow for a useful piece of the branch: it goes, the counts stay.
-  expect(text(headerLine(input({ marks, git, width: 30 })).left)).toBe('◆ canopy · ✎ 1 · ◉ 1')
-  expect(text(headerLine(input({ marks, git: { branch: 'main', files: {} }, width: 31 })).left)).toBe('◆ canopy · ⎇ main · ✎ 1 · ◉ 1')
+  expect(text(headerLine(input({ marks, git, width: 30 })).left)).toBe('◆ canopy · ● 1 · ○ 1')
+  expect(text(headerLine(input({ marks, git: { branch: 'main', files: {} }, width: 31 })).left)).toBe('◆ canopy · ⎇ main · ● 1 · ○ 1')
 })
 
-test('hot write pulses', async () => {
+test('a file Claude is writing pulses in Claude\'s color', async () => {
   const marks = mark({}, 'src/a.ts', 'write', NOW)
   const f0 = line(treeLines(input({ marks, frame: 0 })), 'row:src/a.ts')
   const f1 = line(treeLines(input({ marks, frame: 1 })), 'row:src/a.ts')
-  expect(f0.right).toEqual([{ text: '●', color: 'success' }])
-  expect(f1.right).toEqual([{ text: '●', color: 'success', dim: true }])
-  expect(nameSeg(f0, 'a.ts')).toEqual({ text: 'a.ts', color: 'success', bold: true })
+  expect(f0.right).toEqual([{ text: '✎', color: 'claude' }])
+  expect(f1.right).toEqual([{ text: '✎', color: 'claude', dim: true }])
+  expect(nameSeg(f0, 'a.ts')).toEqual({ text: 'a.ts', color: 'claude', bold: true })
 })
 
 test('hot read spins', async () => {
@@ -78,22 +83,30 @@ test('hot read spins', async () => {
   expect(l.right[0]?.color).toBe('suggestion')
 })
 
-test('warm write keeps color without motion', async () => {
+test('after the motion, a file keeps its state for the session', async () => {
   const marks = mark({}, 'src/a.ts', 'write', NOW)
-  const l = line(treeLines(input({ marks, now: NOW + 9_000 })), 'row:src/a.ts')
-  expect(l.right).toEqual([])
-  expect(nameSeg(l, 'a.ts')).toEqual({ text: 'a.ts', color: 'success' })
-  // A warm read leaves a quiet dot; a cold mark draws nothing.
+  for (const now of [NOW + HOT_MS, NOW + 90_000, NOW + 3_600_000]) {
+    const l = line(treeLines(input({ marks, now })), 'row:src/a.ts')
+    expect(l.right).toEqual([{ text: '●', color: 'warning' }])
+    expect(nameSeg(l, 'a.ts')).toEqual({ text: 'a.ts', color: 'warning' })
+  }
+  // A file read keeps a ring, and its plain name.
   const read = mark({}, 'src/a.ts', 'read', NOW)
-  expect(text(line(treeLines(input({ marks: read, now: NOW + 9_000 })), 'row:src/a.ts').right)).toBe('·')
-  const cold = line(treeLines(input({ marks: read, now: NOW + 90_000 })), 'row:src/a.ts')
-  expect(cold.right).toEqual([])
-  expect(nameSeg(cold, 'a.ts')).toEqual({ text: 'a.ts' })
+  for (const now of [NOW + HOT_MS, NOW + 3_600_000]) {
+    const l = line(treeLines(input({ marks: read, now })), 'row:src/a.ts')
+    expect(l.right).toEqual([{ text: '○', color: 'suggestion' }])
+    expect(nameSeg(l, 'a.ts')).toEqual({ text: ' a.ts' })
+  }
+})
+
+test('each state has its own glyph and color', async () => {
+  expect(STATE_COLOR).toEqual({ editing: 'claude', edited: 'warning', committed: 'success', reading: 'suggestion', read: 'suggestion' })
+  expect(['editing', 'edited', 'committed', 'reading', 'read'].map((s) => stateGlyph(s as any, 0).text).join('')).toBe('✎●✓◐○')
 })
 
 test('commit shows check', async () => {
   const marks = mark({}, 'src/a.ts', 'commit', NOW)
-  for (const now of [NOW, NOW + 30_000]) {
+  for (const now of [NOW, NOW + 30_000, NOW + 3_600_000]) {
     const l = line(treeLines(input({ marks, now })), 'row:src/a.ts')
     expect(text(l.right)).toBe('✓')
     expect(l.right[0]?.color).toBe('success')
@@ -106,7 +119,7 @@ test('git badges right-aligned after activity', async () => {
   const marks = mark({}, 'src/a.ts', 'write', NOW)
   const lines = treeLines(input({ marks, git }))
   const a = line(lines, 'row:src/a.ts')
-  expect(text(a.right)).toBe('● M')
+  expect(text(a.right)).toBe('✎ M')
   expect(a.right[a.right.length - 1]).toEqual({ text: 'M', color: 'warning' })
   // Badges share one column at the right edge; activity sits two cells before it.
   expect(text(line(lines, 'row:package.json').right)).toBe('  A')
@@ -126,7 +139,7 @@ test('folders roll their badges up into one dot', async () => {
   expect(line(clean, 'row:src').right).toEqual([])
 })
 
-test('collapsed dir shows activity count', async () => {
+test('a closed folder shows the strongest state inside it', async () => {
   const marks = mark({}, 'src/a.ts', 'write', NOW)
   const collapsed = treeLines(input({ marks, open: (rel) => rel !== 'src' }))
   const src = line(collapsed, 'row:src')
@@ -135,8 +148,15 @@ test('collapsed dir shows activity count', async () => {
   // The guides sit outside what a press covers.
   expect(src.lead).toEqual([{ text: '├─ ', dim: true }])
   expect(text(src.left)).toBe('▸ src/ ·1')
-  expect(segWith(src.left, '·1')?.color).toBe(ACCENT)
+  expect(segWith(src.left, 'src/')).toEqual({ text: 'src/', bold: true, color: 'claude' })
+  expect(segWith(src.left, '·1')?.color).toBe('claude')
+  expect(src.right).toEqual([{ text: '✎', color: 'claude' }])
   expect(collapsed.some((l) => l.key === 'row:src/a.ts')).toBe(false)
+  // An hour on, it still says a file inside waits for a commit.
+  const later = line(treeLines(input({ marks, now: NOW + 3_600_000, open: (rel) => rel !== 'src' })), 'row:src')
+  expect(full(later)).toBe('├─ ▸ src/ ·1')
+  expect(segWith(later.left, 'src/')?.color).toBe('warning')
+  expect(later.right).toEqual([{ text: '●', color: 'warning' }])
   const open = line(treeLines(input({ marks })), 'row:src')
   expect(full(open)).toBe('├─ ▾ src/')
   expect(segWith(open.left, 'src/')).toEqual({ text: 'src/', bold: true })
@@ -151,14 +171,14 @@ test('a closed folder keeps its count when its name is cut', async () => {
   const rows = flatten('w', listing, () => false)
   const l = line(paneLines(input({ rows, marks, git, width: 30 }), 'ready', '/w'), 'row:a-rather-long-folder-name-here')
   expect(full(l)).toBe('└─ ▸ a-rather-long-fol… ·3')
-  expect(l.left.at(-1)).toEqual({ text: ' ·3', color: ACCENT, keep: true })
+  expect(l.left.at(-1)).toEqual({ text: ' ·3', color: 'suggestion', keep: true })
   // With no room to spare, the count goes before the name does.
   expect(full(line(paneLines(input({ rows, marks, git, width: 12 }), 'ready', '/w'), 'row:a-rather-long-folder-name-here'))).toBe('└─ ▸ a-…')
 })
 
 test('root and guide lines', async () => {
   const lines = treeLines(input())
-  expect(lines.map(full)).toEqual(['▾ w/', '├─ ▾ src/', '│  ├─ ▪ a.ts', '│  └─ ▪ b.md', '├─ ◆ README.md', '└─ ◆ package.json'])
+  expect(lines.map(full)).toEqual(['▾ w/', '├─ ▾ src/', '│  ├─ TS a.ts', '│  └─ M↓ b.md', '├─ M↓ README.md', '└─ {} package.json'])
   expect(lines[2]!.lead).toEqual([{ text: '│  ├─ ', dim: true }])
   const more = treeLines(input({ rows: [{ type: 'root', path: '', name: 'w' }, { type: 'more', path: '', depth: 0, guides: '└─ ', count: 3000 }] }))
   expect(more[1]!.key).toBe('more:')
@@ -176,7 +196,7 @@ test('deep rows keep their names: past half the width the guides fold into ⋯',
   const rows = flatten('w', listing, () => true)
   const narrow = paneLines(input({ rows, git, width: 24 }), 'ready', '/w')
   const deep = line(narrow, 'row:a/b/c/d/e/f/g/Component.tsx')
-  expect(full(deep)).toBe('⋯     ├─ ▪ Componen…')
+  expect(full(deep)).toBe('⋯     ├─ TS Compone…')
   expect(deep.lead).toEqual([{ text: '⋯     ├─ ', dim: true }])
   expect(full(line(narrow, 'row:a/b/c/d/e/f/g'))).toBe('⋯     └─ ▾ g/')
   // Rows that deep line up; shallower ones keep every level.
@@ -186,13 +206,24 @@ test('deep rows keep their names: past half the width the guides fold into ⋯',
   for (const each of narrow) expect(cells(full(each)) + cells(text(each.right))).toBeLessThanOrEqual(24)
   // A wide pane draws every level.
   const wide = treeLines(input({ rows, git, width: 120 }))
-  expect(full(line(wide, 'row:a/b/c/d/e/f/g/Component.tsx'))).toBe('                     ├─ ▪ Component.tsx')
+  expect(full(line(wide, 'row:a/b/c/d/e/f/g/Component.tsx'))).toBe('                     ├─ TS Component.tsx')
 })
 
-test('swatch colors', async () => {
+test('a badge is a bold label on its tile, then a space', async () => {
   const lines = treeLines(input())
+  expect(line(lines, 'row:src/a.ts').left).toEqual([{ text: 'TS', color: '#FFFFFF', bg: '#3178C6', bold: true }, { text: ' a.ts' }])
+  expect(segWith(line(lines, 'row:package.json').left, '{}')?.bg).toBe('#CB3837')
+  // A state colors the name, never the badge.
+  const marks = mark({}, 'src/a.ts', 'write', NOW - 60_000)
+  const edited = line(treeLines(input({ marks })), 'row:src/a.ts').left
+  expect(edited).toEqual([{ text: 'TS', color: '#FFFFFF', bg: '#3178C6', bold: true }, { text: ' ' }, { text: 'a.ts', color: 'warning' }])
+})
+
+test('icons: swatches draws the small colored glyphs', async () => {
+  const lines = treeLines(input({ icons: 'swatches' }))
   expect(segWith(line(lines, 'row:src/a.ts').left, '▪')?.color).toBe('#3178C6')
   expect(segWith(line(lines, 'row:package.json').left, '◆')).toBeDefined()
+  expect(lines.map(full)).toEqual(['▾ w/', '├─ ▾ src/', '│  ├─ ▪ a.ts', '│  └─ ▪ b.md', '├─ ◆ README.md', '└─ ◆ package.json'])
 })
 
 test('activity none draws no marks', async () => {
@@ -205,7 +236,8 @@ test('activity none draws no marks', async () => {
   // 'writes' keeps edits and drops reads.
   const writes = input({ marks, activity: 'writes' })
   expect(line(treeLines(writes), 'row:README.md').right).toEqual([])
-  expect(text(line(treeLines(writes), 'row:src/a.ts').right)).toBe('●')
+  expect(text(line(treeLines(writes), 'row:src/a.ts').right)).toBe('✎')
+  expect(text(headerLine(writes).left)).toBe('◆ canopy · ● 1')
 })
 
 test('truncates to width', async () => {
@@ -215,11 +247,11 @@ test('truncates to width', async () => {
   const lines = paneLines(input({ rows: flatten('w', listing, () => true), marks, git, width: 24 }), 'ready', '/w')
   const l = line(lines, 'row:a-very-long-file-name-that-goes-on.ts')
   expect(text(l.left)).toEndWith('…')
-  expect(text(l.right)).toBe('● M')
+  expect(text(l.right)).toBe('✎ M')
   expect(cells(full(l)) + 1 + cells(text(l.right))).toBeLessThanOrEqual(24)
   for (const each of lines) expect(cells(full(each)) + cells(text(each.right))).toBeLessThanOrEqual(24)
   // The cut keeps the name's style, and a line that fits is untouched.
-  expect(segWith(l.left, '…')?.color).toBe('success')
+  expect(segWith(l.left, '…')?.color).toBe('claude')
   const short: Line = { key: 'k', left: [{ text: 'abc' }], right: [{ text: 'M' }] }
   expect(fit(short, 24)).toEqual(short)
   expect(cells('漢字')).toBe(4)
@@ -232,27 +264,32 @@ test('emoji take two cells, marks and joiners none', async () => {
   expect(cells('❤')).toBe(1)
   expect(cells('a\u200db')).toBe(2)
   // canopy's own glyphs are one cell each.
-  for (const glyph of '│├└─▸▾▪◆●◐◓◑◒✓✎◉⎇⋯•…⠋') expect(cells(glyph)).toBe(1)
+  for (const glyph of '│├└─▸▾▪◆●○◐◓◑◒✓✎⎇⋯•…⠋↓©$_') expect(cells(glyph)).toBe(1)
   // A row with emoji is cut to the width it really takes.
   const name = '🚀✨-launch-plan-for-the-q3-release-and-beyond.md'
   const listing: Listing = { '': [file(name)] }
   const git: GitState = { branch: 'main', files: { [name]: 'M' } }
   const l = line(paneLines(input({ rows: flatten('w', listing, () => true), git }), 'ready', '/w'), 'row:' + name)
-  expect(full(l)).toBe('└─ ▪ 🚀✨-launch-plan-for-the-q3-releas…')
+  expect(full(l)).toBe('└─ M↓ 🚀✨-launch-plan-for-the-q3-relea…')
   expect(cells(full(l)) + 1 + cells(text(l.right))).toBeLessThanOrEqual(44)
   expect(text(fit({ key: 'k', left: [{ text: '🚀🚀🚀-launch' }], right: [] }, 6).left)).toBe('🚀🚀…')
 })
 
 test('legend and empty lines', async () => {
-  const [activity, git] = legendLines('all', true)
-  expect(text(activity!.left)).toBe('● editing  ◐ reading  ✓ committed')
-  expect(segWith(activity!.left, '●')?.color).toBe('success')
-  expect(segWith(activity!.left, 'editing')?.dim).toBe(true)
+  const [changes, reads, git] = legendLines('all', true)
+  expect(text(changes!.left)).toBe('✎ editing  ● edited  ✓ committed')
+  expect(segWith(changes!.left, '✎')?.color).toBe('claude')
+  expect(segWith(changes!.left, '●')?.color).toBe('warning')
+  expect(segWith(changes!.left, '✓')?.color).toBe('success')
+  expect(segWith(changes!.left, 'editing')?.dim).toBe(true)
+  expect(reads!.key).toBe('legend:read')
+  expect(text(reads!.left)).toBe('◐ reading  ○ read')
   expect(text(git!.left)).toBe('M modified  A added  U untracked  D deleted  R renamed')
   expect(segWith(git!.left, 'M')?.color).toBe('warning')
   expect(segWith(git!.left, 'R')?.color).toBe('suggestion')
-  expect(legendLines('all', false)).toHaveLength(1)
-  expect(text(legendLines('writes', false)[0]!.left)).toBe('● editing  ✓ committed')
+  expect(legendLines('all', false)).toHaveLength(2)
+  expect(legendLines('writes', false)).toHaveLength(1)
+  expect(text(legendLines('writes', false)[0]!.left)).toBe('✎ editing  ● edited  ✓ committed')
   expect(legendLines('none', false)).toEqual([])
   expect(text(emptyLine('unreadable', '/w').left)).toBe("canopy can't read /w — /canopy refresh tries again.")
   expect(emptyLine('loading', '/w').left).toEqual([{ text: 'Reading /w…', dim: true }])
@@ -262,13 +299,15 @@ test('legend and empty lines', async () => {
 test('the legend packs whole entries into the width', async () => {
   const at = (width: number) => [...legendLines('all', true, width)].map((l) => [l.key, text(l.left)])
   expect(at(44)).toEqual([
-    ['legend', '● editing  ◐ reading  ✓ committed'],
+    ['legend', '✎ editing  ● edited  ✓ committed'],
+    ['legend:read', '◐ reading  ○ read'],
     ['legend:git', 'M modified  A added  U untracked  D deleted'],
     ['legend:git:2', 'R renamed'],
   ])
   expect(at(30)).toEqual([
-    ['legend', '● editing  ◐ reading'],
+    ['legend', '✎ editing  ● edited'],
     ['legend:2', '✓ committed'],
+    ['legend:read', '◐ reading  ○ read'],
     ['legend:git', 'M modified  A added'],
     ['legend:git:2', 'U untracked  D deleted'],
     ['legend:git:3', 'R renamed'],
@@ -280,7 +319,8 @@ test('the legend packs whole entries into the width', async () => {
 test('pane lines: header, tree, spacer, legend; or the empty states', async () => {
   const ready = paneLines(input({ git: { branch: 'main', files: {} } }), 'ready', '/w')
   expect(ready.map((l) => l.key)).toEqual([
-    'header', 'row:', 'row:src', 'row:src/a.ts', 'row:src/b.md', 'row:README.md', 'row:package.json', 'spacer', 'legend', 'legend:git', 'legend:git:2',
+    'header', 'row:', 'row:src', 'row:src/a.ts', 'row:src/b.md', 'row:README.md', 'row:package.json', 'spacer', 'legend', 'legend:read', 'legend:git',
+    'legend:git:2',
   ])
   const empty = paneLines(input({ rows: [{ type: 'root', path: '', name: 'w' }] }), 'empty', '/w')
   expect(empty.map((l) => l.key)).toEqual(['header', 'row:', 'empty'])

@@ -1,6 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { STATUS_ARGV } from '../hooks/git.ts'
-import { ACCENT } from '../hooks/view.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -40,6 +39,8 @@ function stubs(on: any, setup: Setup = {}) {
     toasts: [] as string[],
     panes: 0,
     open: new Set<string>(),
+    behind: false, // canopy's pane is open as a tab behind another pane
+    order: [] as string[], // opens and closes, in order
     answer: (e: any): any => ({ result: { type: 'text', file: { filePath: e.file_path } } }),
     hold: {} as Record<string, Promise<void>>,
     gitignore: setup.gitignore,
@@ -65,18 +66,22 @@ function stubs(on: any, setup: Setup = {}) {
   })
   on('ui.open', ($: any, e: any) => {
     calls.opens.push(e)
+    calls.order.push('open')
+    // A new open comes to the front; an open of an open pane only retitles it.
+    if (!calls.open.has(e.id)) calls.behind = false
     calls.open.add(e.id)
     return { value: placed ? { isPlaced: true } : { isPlaced: false, reason: 'the terminal is narrower than 144 columns' } }
   })
   on('ui.close', ($: any, e: any) => {
     calls.closes++
+    calls.order.push('close')
     calls.open.delete(e.id)
     return { value: undefined }
   })
   on('ui.panes', () => {
     calls.panes++
     if (setup.panesFail) return { deny: 'refused' }
-    return { value: [...calls.open].map((id) => ({ id, title: 'Canopy', isShown: placed, isFocused: false, isPlaced: placed })) }
+    return { value: [...calls.open].map((id) => ({ id, title: 'Canopy', isShown: placed && !calls.behind, isFocused: false, isPlaced: placed })) }
   })
   on('ui.toast', ($: any, e: any) => {
     calls.toasts.push(e.text)
@@ -151,7 +156,7 @@ test('a Read lights the file', async ($, on) => {
     expect(piece(row, 'a.ts')?.props.color).toBe('suggestion')
     expect(piece(row, '◐')?.props.color).toBe('suggestion')
     expect((await ui.find({ key: 'row:src' }))?.text).toContain('▾ src/')
-    expect(await header(ui)).toContain('◉ 1')
+    expect(await header(ui)).toContain('○ 1')
     await ui.unmount()
   }
 })
@@ -166,9 +171,9 @@ test('a Read is lit while it waits, and forgotten when denied', async ($, on) =>
     return { deny: 'The user denied this read.' }
   }
   const out: any = await $.tool.call({ tool: 'Read', file_path: '/w/src/a.ts' })
-  expect(during).toContain('◉ 1')
+  expect(during).toContain('○ 1')
   expect(out.deny).toMatch(/denied/)
-  expect(await header(ui)).not.toContain('◉')
+  expect(await header(ui)).not.toContain('○')
   expect(await ui.find({ key: 'row:src/a.ts' })).toBeUndefined()
   await ui.unmount()
 })
@@ -185,12 +190,12 @@ test('a denied Read leaves an Edit made meanwhile', async ($, on) => {
     return { deny: 'The user denied this read.' }
   }
   const reading = $.tool.call({ tool: 'Read', file_path: '/w/src/a.ts' })
-  for (let i = 0; i < 100_000 && !(await header(ui)).includes('◉'); i++) await Promise.resolve()
+  for (let i = 0; i < 100_000 && !(await header(ui)).includes('○'); i++) await Promise.resolve()
   await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
   deny()
   await reading
-  expect(await header(ui)).toContain('✎ 1')
-  expect(piece(await ui.find({ key: 'row:src/a.ts' }), 'a.ts')?.props.color).toBe('success')
+  expect(await header(ui)).toContain('● 1')
+  expect(piece(await ui.find({ key: 'row:src/a.ts' }), 'a.ts')?.props.color).toBe('claude')
   await ui.unmount()
 })
 
@@ -200,10 +205,10 @@ test('an Edit marks it written and counts it', async ($, on) => {
   await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await header(ui)).toContain('✎ 1')
+    expect(await header(ui)).toContain('● 1')
     const row = await ui.find({ key: 'row:src/a.ts' })
-    expect(piece(row, 'a.ts')?.props).toEqual({ color: 'success', bold: true })
-    expect(piece(row, '●')?.props.color).toBe('success')
+    expect(piece(row, 'a.ts')?.props).toEqual({ color: 'claude', bold: true })
+    expect(piece(row, '✎')?.props.color).toBe('claude')
     await ui.unmount()
   }
   // The badge follows within a second, once git has been asked again.
@@ -222,7 +227,7 @@ test('a Write that creates a file shows it', async ($, on) => {
   calls.files['/w/src'] = [file('a.ts'), file('b.md'), file('c.ts')]
   await $.tool.call({ tool: 'Write', file_path: '/w/src/c.ts', content: 'x' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(piece(await ui.find({ key: 'row:src/c.ts' }), 'c.ts')?.props.color).toBe('success')
+  expect(piece(await ui.find({ key: 'row:src/c.ts' }), 'c.ts')?.props.color).toBe('claude')
   await ui.unmount()
 })
 
@@ -236,7 +241,7 @@ test('a Write that makes new folders shows them at once', async ($, on) => {
   calls.files['/w/newdir/sub'] = [file('x.ts')]
   await $.tool.call({ tool: 'Write', file_path: '/w/newdir/sub/x.ts', content: 'x' })
   expect((await ui.find({ key: 'row:newdir' }))?.text).toContain('▾ newdir/')
-  expect(piece(await ui.find({ key: 'row:newdir/sub/x.ts' }), 'x.ts')?.props.color).toBe('success')
+  expect(piece(await ui.find({ key: 'row:newdir/sub/x.ts' }), 'x.ts')?.props.color).toBe('claude')
   await ui.unmount()
 })
 
@@ -334,9 +339,9 @@ test('bash edits and reads light files', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'npx prettier --write README.md' })
   await $.tool.call({ tool: 'Bash', command: 'cat src/a.ts | head -n 5' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(piece(await ui.find({ key: 'row:README.md' }), 'README.md')?.props).toEqual({ color: 'success', bold: true })
+  expect(piece(await ui.find({ key: 'row:README.md' }), 'README.md')?.props).toEqual({ color: 'claude', bold: true })
   expect(piece(await ui.find({ key: 'row:src/a.ts' }), 'a.ts')?.props.color).toBe('suggestion')
-  expect(await header(ui)).toContain('✎ 1 · ◉ 1')
+  expect(await header(ui)).toContain('● 1 · ○ 1')
   await ui.unmount()
 })
 
@@ -361,8 +366,8 @@ test('other tools light a file only by its absolute path', async ($, on) => {
   await $.tool.call({ tool: 'mcp__files__write_file', path: '/w/package.json' } as any)
   await $.tool.call({ tool: 'mcp__files__read_text_file', path: '/w/src' } as any)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await header(ui)).toMatch(/^◆ canopy · ⎇ main · ✎ 1\S?$/)
-  expect(piece(await ui.find({ key: 'row:package.json' }), 'package.json')?.props.color).toBe('success')
+  expect(await header(ui)).toMatch(/^◆ canopy · ⎇ main · ● 1\S?$/)
+  expect(piece(await ui.find({ key: 'row:package.json' }), 'package.json')?.props.color).toBe('claude')
   await ui.unmount()
 })
 
@@ -373,9 +378,9 @@ test('works outside a git repo', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await header(ui)).not.toContain('⎇')
-    expect(await header(ui)).toContain('✎ 1')
+    expect(await header(ui)).toContain('● 1')
     expect(await ui.find({ key: 'legend:git' })).toBeUndefined()
-    expect((await ui.find({ key: 'row:src/a.ts' }))?.text).toMatch(/●$/)
+    expect((await ui.find({ key: 'row:src/a.ts' }))?.text).toMatch(/✎$/)
     await ui.unmount()
   }
 })
@@ -442,7 +447,8 @@ test('a folder the person closed stays closed while Claude works in it', async (
   expect(await ui.find({ key: 'row:src/a.ts' })).toBeUndefined()
   const src = await ui.find({ key: 'row:src' })
   expect(src?.text).toContain('▸ src/ ·1')
-  expect(piece(src, '·1')?.props.color).toBe(ACCENT)
+  expect(piece(src, '·1')?.props.color).toBe('claude')
+  expect(src?.text).toMatch(/✎ *$/)
   await ui.unmount()
 })
 
@@ -460,26 +466,62 @@ test('/canopy toggles the pane', { options: { start: 'off' } }, async ($, on) =>
   expect(calls.lists.length).toBeGreaterThan(lists)
 })
 
-test('heat fades with the clock', async ($, on) => {
+test('/canopy brings the pane to the front from behind another tab', { options: { start: 'off' } }, async ($, on) => {
+  const { calls } = stubs(on)
+  await start($)
+  await $.command.run({ command: 'canopy', args: '' })
+  // Another plugin's pane opened over it: canopy's is now a tab behind.
+  calls.behind = true
+  calls.order = []
+  await $.command.run({ command: 'canopy', args: '' })
+  expect(calls.order).toEqual(['close', 'open'])
+  expect(calls.behind).toBe(false)
+  // In front now, the next /canopy hides it.
+  calls.order = []
+  await $.command.run({ command: 'canopy', args: '' })
+  expect(calls.order).toEqual(['close'])
+})
+
+test('a docked pane keeps a cell of air on its left; an inline one does not', async ($, on) => {
+  stubs(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const dock = await $.ui.mount({ ...PANE, surface })
+    expect((await dock.drawn()).props.paddingLeft).toBe(1)
+    // Laid out to one cell less: the legend's git line packs to 43.
+    expect((await dock.find({ key: 'legend:git' }))?.text).toBe('M modified  A added  U untracked  D deleted')
+    await dock.unmount()
+    const inline = await $.ui.mount({ ...PANE, surface, props: { ...PANE.props, placement: 'inline', bodyColumns: 42 } })
+    expect((await inline.drawn()).props.paddingLeft).toBeUndefined()
+    expect((await inline.find({ key: 'legend:git' }))?.text).toBe('M modified  A added  U untracked')
+    await inline.unmount()
+  }
+})
+
+test('an edit pulses, then stays edited for the session', async ($, on) => {
   const { clock } = stubs(on)
   await start($)
   await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const row = async () => (await ui.find({ key: 'row:src/a.ts' }))?.text.trim() ?? ''
-  expect(await row()).toMatch(/●$/)
-  expect(piece(await ui.find({ key: 'row:src/a.ts' }), '●')?.props).toEqual({ color: 'success' })
+  expect(await row()).toMatch(/✎$/)
+  expect(piece(await ui.find({ key: 'row:src/a.ts' }), '✎')?.props).toEqual({ color: 'claude' })
   await clock.advance(250)
-  expect(await row()).toMatch(/●$/)
-  expect(piece(await ui.find({ key: 'row:src/a.ts' }), '●')?.props).toEqual({ color: 'success', dimColor: true })
+  expect(await row()).toMatch(/✎$/)
+  expect(piece(await ui.find({ key: 'row:src/a.ts' }), '✎')?.props).toEqual({ color: 'claude', dimColor: true })
   expect(await header(ui)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
   await clock.advance(9_000)
-  expect(await row()).toMatch(/a\.ts$/)
-  const warm = await ui.find({ key: 'row:src/a.ts' })
-  expect(piece(warm, 'a.ts')?.props).toEqual({ color: 'success' })
-  expect(await header(ui)).toBe('◆ canopy · ⎇ main · ✎ 1')
-  // A minute later the folder closes again: nothing is happening in it.
+  expect(await row()).toMatch(/●$/)
+  const edited = await ui.find({ key: 'row:src/a.ts' })
+  expect(piece(edited, 'a.ts')?.props).toEqual({ color: 'warning' })
+  expect(piece(edited, '●')?.props).toEqual({ color: 'warning' })
+  expect(await header(ui)).toBe('◆ canopy · ⎇ main · ● 1')
+  // A minute later the folder closes again, and says what waits inside it.
   await clock.advance(60_000)
   expect(await ui.find({ key: 'row:src/a.ts' })).toBeUndefined()
+  const src = await ui.find({ key: 'row:src' })
+  expect(src?.text).toMatch(/▸ src\/ ·1● *$/)
+  expect(piece(src, 'src/')?.props.color).toBe('warning')
   await ui.unmount()
 })
 
@@ -572,7 +614,7 @@ test('activity writes ignores reads', { options: { activity: 'writes' } }, async
   await $.tool.call({ tool: 'Read', file_path: '/w/README.md' })
   await $.tool.call({ tool: 'Edit', file_path: '/w/package.json', old_string: 'a', new_string: 'b' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await header(ui)).toMatch(/^◆ canopy · ⎇ main · ✎ 1\S?$/)
+  expect(await header(ui)).toMatch(/^◆ canopy · ⎇ main · ● 1\S?$/)
   expect(await ui.find({ key: 'row:README.md' })).toBeDefined()
   expect((await ui.find({ key: 'legend' }))?.text).not.toContain('reading')
   await ui.unmount()
@@ -697,7 +739,7 @@ test('a deep file keeps its name in a narrow pane', async ($, on) => {
   await $.tool.call({ tool: 'Read', file_path: '/w/a/b/c/d/e/f/g/Component.tsx' })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface, props: { ...PANE.props, bodyColumns: 24 } })
-    expect((await ui.find({ key: 'row:a/b/c/d/e/f/g/Component.tsx' }))?.text).toMatch(/^⋯ +└─ ▪ Compon/)
+    expect((await ui.find({ key: 'row:a/b/c/d/e/f/g/Component.tsx' }))?.text).toMatch(/^⋯ +└─ TS Compon/)
     expect((await ui.find({ key: 'row:a/b/c/d/e/f/g' }))?.text).toMatch(/^⋯ +└─ ▾ g\//)
     await ui.unmount()
   }
@@ -710,7 +752,8 @@ test('a long branch leaves the counts in the header', async ($, on) => {
   await $.tool.call({ tool: 'Read', file_path: '/w/README.md' })
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await header(ui)).toMatch(/^◆ canopy · ⎇ feature\/PROJ-123… · ✎ 1 · ◉ 1[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
+    // The dock's cell of air leaves 43 cells across.
+    expect(await header(ui)).toMatch(/^◆ canopy · ⎇ feature\/PROJ-12… · ● 1 · ○ 1[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
     await ui.unmount()
   }
 })
