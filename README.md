@@ -152,8 +152,7 @@ claude --plugin-dir .                # try it in a session; edits hot-reload
 with one job each, tested on their own: `tree.ts` (ignore rules and guide lines),
 `activity.ts` (marks, heat and each file's state), `git.ts` (status parsing), `bashpaths.ts`
 (what a shell command reads or changes), `view.ts` (the look) and `filetypes.ts` (badges and
-swatches). Design notes
-live in [`docs/superpowers/plans`](docs/superpowers/plans).
+swatches).
 
 ## Credits
 
