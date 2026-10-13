@@ -1,0 +1,14 @@
+{
+  "name": "canopy",
+  "owner": { "name": "flaviorg", "url": "https://github.com/flaviorg" },
+  "metadata": { "description": "Canopy — a Claude Code mod that shows your project's file tree beside the chat, lit by what Claude touches." },
+  "plugins": [
+    {
+      "name": "canopy",
+      "source": "./",
+      "description": "Mod: your project's file tree beside the chat, lit by what Claude reads, edits and commits.",
+      "version": "0.1.0",
+      "category": "mod"
+    }
+  ]
+}

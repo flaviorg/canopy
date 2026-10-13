@@ -1,0 +1,39 @@
+{
+  "name": "canopy",
+  "version": "0.1.0",
+  "description": "Your project's file tree beside the chat, lit by what Claude reads, edits and commits.",
+  "author": { "name": "flaviorg", "url": "https://github.com/flaviorg" },
+  "repository": "https://github.com/flaviorg/canopy",
+  "license": "MIT",
+  "keywords": ["mod", "file-tree", "explorer", "git", "activity"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "start": {
+      "type": "string",
+      "title": "Open at start",
+      "description": "on: open the tree when a session starts (if the terminal is wide enough). off: open it with /canopy.",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "activity": {
+      "type": "string",
+      "title": "Activity",
+      "description": "Which of Claude's file activity lights the tree.",
+      "default": "all",
+      "options": ["all", "writes", "none"]
+    },
+    "ignore": {
+      "type": "string",
+      "title": "Also ignore",
+      "description": "Comma-separated names to hide, on top of .gitignore and the built-ins (node_modules, dist…).",
+      "default": ""
+    },
+    "follow": {
+      "type": "string",
+      "title": "Follow",
+      "description": "Scroll to the file Claude is touching.",
+      "default": "on",
+      "options": ["on", "off"]
+    }
+  }
+}
