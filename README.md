@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/media/banner.png" alt="canopy: a Claude Code mod that keeps your project's file tree beside the chat, lit by what Claude reads, edits and commits" width="100%">
+
 # ◆ canopy
 
 **A Claude Code mod that keeps your project's file tree beside the chat, and lights each file as Claude reads, edits or commits it.**
@@ -8,7 +10,10 @@
 [![Tested with](https://img.shields.io/badge/tested_with-Claude_Code_2.1.296-0d0d0f?style=flat-square)](#compatibility)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8a877f?style=flat-square)](LICENSE)
 
-<!-- A recording replaces this still once it is made. -->
+<img src="docs/media/canopy.gif" alt="Claude reads the router and the todos module, edits them, writes a test and commits; in the canopy pane each file lights blue while read, orange while edited, yellow until the commit and green once committed, and the folders open as Claude works in them" width="900">
+
+<sub>An animation of the pane, drawn with canopy's own layout; reads and edits are sped up.</sub>
+
 <img src="docs/media/canopy.png" alt="canopy docked beside a real Claude Code session: notes.md and index.ts read, router.ts edited and not yet committed, todos.ts committed, todos.test.ts being edited right now, each in its own color, with TS, CS, M↓ and {} badges before the names" width="414">
 
 </div>
