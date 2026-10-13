@@ -179,7 +179,8 @@ test('legend and empty lines', async () => {
   expect(legendLines('all', false)).toHaveLength(1)
   expect(text(legendLines('writes', false)[0]!.left)).toBe('● editing  ✓ committed')
   expect(legendLines('none', false)).toEqual([])
-  expect(text(emptyLine('unreadable', '/w').left)).toBe("canopy can't read /w.")
+  expect(text(emptyLine('unreadable', '/w').left)).toBe("canopy can't read /w — /canopy refresh tries again.")
+  expect(emptyLine('loading', '/w').left).toEqual([{ text: 'Reading /w…', dim: true }])
   expect(emptyLine('empty', '/w').left).toEqual([{ text: 'Empty folder — files appear here as Claude creates them.', dim: true }])
 })
 
@@ -190,6 +191,7 @@ test('pane lines: header, tree, spacer, legend; or the empty states', async () =
   expect(empty.map((l) => l.key)).toEqual(['header', 'row:', 'empty'])
   const unreadable = paneLines(input({ rows: [] }), 'unreadable', '/w')
   expect(unreadable.map((l) => l.key)).toEqual(['header', 'empty'])
+  expect(paneLines(input({ rows: [] }), 'loading', '/w').map((l) => l.key)).toEqual(['header', 'empty'])
   // A sentence wraps rather than being cut, however narrow the pane.
   const narrow = paneLines(input({ rows: [{ type: 'root', path: '', name: 'w' }], width: 24 }), 'empty', '/w')
   expect(narrow.at(-1)!.left[0]!.text).toBe('Empty folder — files appear here as Claude creates them.')

@@ -29,6 +29,7 @@ const collapsedA = atom({ plugin: 'canopy', key: 'collapsed' } as const, [] as s
 // Module state: rebuilt by scanning, so losing it to a reload costs one rescan.
 let settings: Options = { start: 'on', activity: 'all', ignore: '', follow: 'on' }
 let root: string | null = null
+let booted = false // a first scan has finished (until then the pane says it is reading)
 let rootName = ''
 let gitPrefix = ''
 let listing: Listing = {}
@@ -90,7 +91,7 @@ export function register(on: any, options: Partial<Options>) {
   on('command.run', { command: 'canopy' }, async ($: any, e: any) => {
     if ((e.args ?? '').trim() === 'refresh') {
       await boot($)
-      return { text: 'canopy: rescanned' }
+      return { text: paneStatus() === 'unreadable' ? `canopy: can't read ${root ?? 'the project folder'}` : 'canopy: rescanned' }
     }
     const pane = (await $.ui.panes()).find((p: any) => p.id === PANE)
     if (pane?.isShown) {
@@ -124,15 +125,16 @@ export function register(on: any, options: Partial<Options>) {
 async function boot($: any): Promise<void> {
   try {
     root = normalRoot(await $.session.root())
+    rootName = root.split('/').filter(Boolean).pop() ?? root
+    gitignore = null
+    gitPrefix = await readGitPrefix($)
+    // Cached listings are replaced folder by folder, so the pane never blinks empty.
+    await freshen($)
   } catch {
     root = null
-    return
   }
-  rootName = root.split('/').filter(Boolean).pop() ?? root
-  gitignore = null
-  gitPrefix = await readGitPrefix($)
-  // Cached listings are replaced folder by folder, so the pane never blinks empty.
-  await freshen($)
+  booted = true
+  $.ui.invalidate('ui.render')
 }
 
 // Catches up with the disk and the repository: the ignore rules, the open folders, git.
@@ -418,6 +420,7 @@ function drawSeg(elements: any, seg: Seg): any {
 }
 
 function paneStatus(): PaneStatus {
+  if (!booted) return 'loading'
   const top = listing['']
   if (root === null || top === undefined) return 'unreadable'
   return top.length === 0 ? 'empty' : 'ready'

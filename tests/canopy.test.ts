@@ -680,10 +680,23 @@ test('an empty project says what will happen', async ($, on) => {
   }
 })
 
-test('an unreadable root says so', async ($, on) => {
-  stubs(on, { files: {} })
+test('an unreadable root says so, and what to do', async ($, on) => {
+  const { calls } = stubs(on, { files: {} })
   await start($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'empty' }))?.text).toBe("canopy can't read /w.")
+  expect((await ui.find({ key: 'empty' }))?.text).toBe("canopy can't read /w — /canopy refresh tries again.")
+  expect((await $.command.run({ command: 'canopy', args: 'refresh' })).text).toBe("canopy: can't read /w")
+  calls.files['/w'] = FILES()['/w']
+  expect((await $.command.run({ command: 'canopy', args: 'refresh' })).text).toBe('canopy: rescanned')
+  expect(await ui.find({ key: 'row:src' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('before its first scan the pane says it is reading', async ($, on) => {
+  stubs(on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'empty' }))?.text).toBe('Reading the project folder…')
+  await start($)
+  expect(await ui.find({ key: 'row:src' })).toBeDefined()
   await ui.unmount()
 })

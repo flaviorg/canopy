@@ -24,7 +24,7 @@ export type ViewInput = {
   width: number
   activity: Activity
 }
-export type PaneStatus = 'ready' | 'empty' | 'unreadable'
+export type PaneStatus = 'loading' | 'ready' | 'empty' | 'unreadable'
 
 export const SPIN: readonly string[] = ['◐', '◓', '◑', '◒']
 export const BRAILLE: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -146,12 +146,14 @@ export function legendLines(activity: Activity, git: boolean): Line[] {
   return lines
 }
 
-/** What the pane says instead of a tree. */
-export function emptyLine(reason: 'unreadable' | 'empty', root: string): Line {
-  const say: Seg = reason === 'unreadable'
-    ? { text: `canopy can't read ${root}.` }
-    : { text: 'Empty folder — files appear here as Claude creates them.', dim: true }
-  return { key: 'empty', left: [say], right: [] }
+/** What the pane says instead of a tree: before the first scan, when it fails, or when empty. */
+export function emptyLine(reason: Exclude<PaneStatus, 'ready'>, root: string): Line {
+  const say: Record<typeof reason, Seg> = {
+    loading: { text: `Reading ${root}…`, dim: true },
+    unreadable: { text: `canopy can't read ${root} — /canopy refresh tries again.` },
+    empty: { text: 'Empty folder — files appear here as Claude creates them.', dim: true },
+  }
+  return { key: 'empty', left: [say[reason]], right: [] }
 }
 
 /**
@@ -160,7 +162,7 @@ export function emptyLine(reason: 'unreadable' | 'empty', root: string): Line {
  */
 export function paneLines(input: ViewInput, status: PaneStatus, root: string): Line[] {
   const header = fit(headerLine(input), input.width)
-  if (status === 'unreadable') return [header, emptyLine('unreadable', root)]
+  if (status === 'loading' || status === 'unreadable') return [header, emptyLine(status, root)]
   const tree = treeLines(input)
   if (status === 'empty') return [header, ...tree.map((l) => fit(l, input.width)), emptyLine('empty', root)]
   const legend = legendLines(input.activity, hasGit(input.git))
