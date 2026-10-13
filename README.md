@@ -4,7 +4,7 @@
 
 **A Claude Code mod that keeps your project's file tree beside the chat, and lights each file as Claude reads, edits or commits it.**
 
-[![Claude Code mod](https://img.shields.io/badge/Claude_Code-mod-5FB97A?style=flat-square)](https://code.claude.com/docs/en/plugins/mods/overview)
+[![Claude Code mod](https://img.shields.io/badge/Claude_Code-mod-49A665?style=flat-square)](https://code.claude.com/docs/en/plugins/mods/overview)
 [![Tested with](https://img.shields.io/badge/tested_with-Claude_Code_2.1.296-0d0d0f?style=flat-square)](#compatibility)
 [![License: MIT](https://img.shields.io/badge/license-MIT-8a877f?style=flat-square)](LICENSE)
 

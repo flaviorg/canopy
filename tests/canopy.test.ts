@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { STATUS_ARGV } from '../hooks/git.ts'
+import { ACCENT } from '../hooks/view.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -441,7 +442,7 @@ test('a folder the person closed stays closed while Claude works in it', async (
   expect(await ui.find({ key: 'row:src/a.ts' })).toBeUndefined()
   const src = await ui.find({ key: 'row:src' })
   expect(src?.text).toContain('▸ src/ ·1')
-  expect(piece(src, '·1')?.props.color).toBe('#5FB97A')
+  expect(piece(src, '·1')?.props.color).toBe(ACCENT)
   await ui.unmount()
 })
 

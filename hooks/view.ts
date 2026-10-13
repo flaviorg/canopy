@@ -10,8 +10,11 @@ import { anyHot, heat, hotCounts, summary, type Activity, type Mark, type Marks 
 import { badgeFor, rollupAll, type Badge, type GitState } from './git.ts'
 import { swatchFor } from './filetypes.ts'
 
-/** canopy's one color, for what is live: the header spinner and activity inside closed folders. */
-export const ACCENT = '#5FB97A'
+/**
+ * canopy's one color, for what is live: the header spinner and activity inside closed folders.
+ * A mid green that reads on light and dark themes alike.
+ */
+export const ACCENT = '#49A665'
 
 /** `keep`: the end of a left side a cut leaves whole while it can (a closed folder's count). */
 export type Seg = { text: string; color?: string; bold?: true; dim?: true; keep?: true }
