@@ -459,6 +459,23 @@ test('the ticker rests when the panes cannot be asked about', async ($, on) => {
   expect(calls.panes).toBe(panes)
 })
 
+test('one failed listing keeps the tree; a second says so', async ($, on) => {
+  const { calls, clock } = stubs(on)
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const root = calls.files['/w']!
+  delete calls.files['/w']
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:src' })).toBeDefined()
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:src' })).toBeUndefined()
+  expect((await ui.find({ key: 'empty' }))?.text).toContain("can't read /w")
+  calls.files['/w'] = root
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:src' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('follow never gets in the way', async ($, on) => {
   // The test kit has no `ui.scroll`, so canopy's scroll is refused here as on a hidden pane:
   // the touch still lands and the pane still draws.

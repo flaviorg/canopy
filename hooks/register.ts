@@ -34,6 +34,7 @@ let gitPrefix = ''
 let listing: Listing = {}
 let listings = 0 // counts finished listings, so a scan knows which ones came after it began
 const listedAt = new Map<string, number>()
+const misses = new Map<string, number>() // listings in a row that failed, by folder
 let ig: Ignore = ignoreRules('', '')
 let frame = 0
 let tick = 0
@@ -152,15 +153,18 @@ async function openPane($: any): Promise<boolean> {
   }
 }
 
-// Lists one folder into the cache, redrawing when it changed. A folder that can't be listed
-// is forgotten, and so drawn closed.
+// Lists one folder into the cache, redrawing when it changed. One failed listing keeps the
+// last (a passing hiccup); a folder that fails twice in a row is forgotten, and so drawn closed.
 async function scanDir($: any, rel: string): Promise<void> {
   if (root === null) return
   const was = JSON.stringify(listing[rel])
   try {
     listing[rel] = toEntries(await $.fs.list(absolute(rel)), rel, ig)
+    misses.delete(rel)
   } catch {
-    delete listing[rel]
+    const missed = (misses.get(rel) ?? 0) + 1
+    misses.set(rel, missed)
+    if (missed > 1) delete listing[rel]
   }
   listedAt.set(rel, ++listings)
   if (JSON.stringify(listing[rel]) !== was) $.ui.invalidate('ui.render')
@@ -184,6 +188,7 @@ async function scanVisible($: any): Promise<void> {
     if (listed.has(dir) || openNow.has(dir) || (listedAt.get(dir) ?? 0) > began) continue
     delete listing[dir]
     listedAt.delete(dir)
+    misses.delete(dir)
   }
 }
 
