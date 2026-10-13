@@ -22,6 +22,7 @@ function input(over: Partial<ViewInput> & { open?: (rel: string) => boolean } = 
 }
 
 const text = (segs: Seg[]) => segs.map((s) => s.text).join('')
+const full = (l: Line) => text([...(l.lead ?? []), ...l.left])
 const line = (lines: Line[], key: string) => {
   const found = lines.find((l) => l.key === key)
   if (!found) throw new Error('no line ' + key)
@@ -116,18 +117,21 @@ test('collapsed dir shows activity count', async () => {
   const collapsed = treeLines(input({ marks, open: (rel) => rel !== 'src' }))
   const src = line(collapsed, 'row:src')
   expect(src.toggle).toBe('src')
-  expect(text(src.left)).toBe('├─ ▸ src/ ·1')
+  expect(full(src)).toBe('├─ ▸ src/ ·1')
+  // The guides sit outside what a press covers.
+  expect(src.lead).toEqual([{ text: '├─ ', dim: true }])
+  expect(text(src.left)).toBe('▸ src/ ·1')
   expect(segWith(src.left, '·1')?.color).toBe(ACCENT)
   expect(collapsed.some((l) => l.key === 'row:src/a.ts')).toBe(false)
   const open = line(treeLines(input({ marks })), 'row:src')
-  expect(text(open.left)).toBe('├─ ▾ src/')
+  expect(full(open)).toBe('├─ ▾ src/')
   expect(segWith(open.left, 'src/')).toEqual({ text: 'src/', bold: true })
 })
 
 test('root and guide lines', async () => {
   const lines = treeLines(input())
-  expect(lines.map((l) => text(l.left))).toEqual(['▾ w/', '├─ ▾ src/', '│  ├─ ▪ a.ts', '│  └─ ▪ b.md', '├─ ◆ README.md', '└─ ◆ package.json'])
-  expect(segWith(lines[2]!.left, '│  ├─ ')?.dim).toBe(true)
+  expect(lines.map(full)).toEqual(['▾ w/', '├─ ▾ src/', '│  ├─ ▪ a.ts', '│  └─ ▪ b.md', '├─ ◆ README.md', '└─ ◆ package.json'])
+  expect(lines[2]!.lead).toEqual([{ text: '│  ├─ ', dim: true }])
   const more = treeLines(input({ rows: [{ type: 'root', path: '', name: 'w' }, { type: 'more', path: '', depth: 0, guides: '└─ ', count: 3000 }] }))
   expect(more[1]!.key).toBe('more:')
   expect(text(more[1]!.left)).toBe('└─ … 3000 more')
@@ -160,8 +164,8 @@ test('truncates to width', async () => {
   const l = line(lines, 'row:a-very-long-file-name-that-goes-on.ts')
   expect(text(l.left)).toEndWith('…')
   expect(text(l.right)).toBe('● M')
-  expect(cells(text(l.left)) + 1 + cells(text(l.right))).toBeLessThanOrEqual(24)
-  for (const each of lines) expect(cells(text(each.left)) + cells(text(each.right))).toBeLessThanOrEqual(24)
+  expect(cells(full(l)) + 1 + cells(text(l.right))).toBeLessThanOrEqual(24)
+  for (const each of lines) expect(cells(full(each)) + cells(text(each.right))).toBeLessThanOrEqual(24)
   // The cut keeps the name's style, and a line that fits is untouched.
   expect(segWith(l.left, '…')?.color).toBe('success')
   const short: Line = { key: 'k', left: [{ text: 'abc' }], right: [{ text: 'M' }] }
@@ -234,4 +238,12 @@ test('nodes: a box, one per plain segment, two per styled one', async () => {
   expect(nodesOf({ key: 'k', left: [{ text: 'a' }], right: [] })).toBe(2)
   expect(nodesOf({ key: 'k', left: [{ text: 'a', dim: true }], right: [{ text: 'M', color: 'warning' }] })).toBe(1 + 2 + 1 + 2)
   expect(nodesOf({ key: 'k', left: [{ text: 'a' }], right: [], toggle: 'src' })).toBe(3)
+  expect(nodesOf({ key: 'k', lead: [{ text: '├─ ', dim: true }], left: [], right: [], toggle: 'src' })).toBe(3)
+})
+
+test('a cut reaches into the guides only when the pane is that narrow', async () => {
+  const l: Line = { key: 'k', lead: [{ text: '│  ├─ ', dim: true }], left: [{ text: '▸ ', dim: true }, { text: 'src/', bold: true }], right: [{ text: '  M' }], toggle: 'src' }
+  expect(fit(l, 14)).toEqual({ ...l, left: [{ text: '▸ ', dim: true }, { text: 's…', bold: true }] })
+  expect(fit(l, 8)).toEqual({ ...l, lead: [{ text: '│  …', dim: true }], left: [] })
+  expect(fit(l, 4)).toEqual({ ...l, lead: [], left: [] })
 })

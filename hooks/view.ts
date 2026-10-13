@@ -1,8 +1,9 @@
 // canopy's look: every line of the pane as styled segments, decided here so register.ts only
 // turns them into elements. Pure, no mods API.
 //
-// A line is drawn as one row Box: its left segments (wrapped in a Button when it toggles a
-// folder), then, when it has a right side, a growing spacer and the right segments. A segment
+// A line is drawn as one row Box: its lead (the tree's guide lines), its left segments (wrapped
+// in a Button when it toggles a folder, so focus and the pointer light the folder, not the
+// guides), then, when it has a right side, a growing spacer and the right segments. A segment
 // with no style is drawn as a bare string; a styled one as a Text.
 import type { Row } from './tree.ts'
 import { anyHot, heat, hotCounts, summary, type Activity, type Mark, type Marks } from './activity.ts'
@@ -13,8 +14,11 @@ import { swatchFor } from './filetypes.ts'
 export const ACCENT = '#5FB97A'
 
 export type Seg = { text: string; color?: string; bold?: true; dim?: true }
-/** One row of the pane. `toggle` is the folder a press on it opens or closes. */
-export type Line = { key: string; left: Seg[]; right: Seg[]; toggle?: string }
+/**
+ * One row of the pane: `lead`, then `left`, then `right` at the edge. `toggle` is the folder a
+ * press on `left` opens or closes.
+ */
+export type Line = { key: string; lead?: Seg[]; left: Seg[]; right: Seg[]; toggle?: string }
 export type ViewInput = {
   rows: Row[]
   marks: Marks
@@ -94,9 +98,9 @@ export function treeLines(input: ViewInput): Line[] {
 
 // `inside`: hot or warm files inside a closed folder, so it says how much is happening there.
 function dirLine(row: Extract<Row, { type: 'dir' }>, inside: number, badge: Badge | null, slots: boolean): Line {
-  const left: Seg[] = [{ text: row.guides + (row.expanded ? '▾ ' : '▸ '), dim: true }, { text: printable(row.name) + '/', bold: true }]
+  const left: Seg[] = [{ text: row.expanded ? '▾ ' : '▸ ', dim: true }, { text: printable(row.name) + '/', bold: true }]
   if (inside > 0) left.push({ text: ' ·' + inside, color: ACCENT })
-  return { key: rowKey(row.path), left, right: column(null, badge, slots, '●'), toggle: row.path }
+  return { key: rowKey(row.path), lead: [{ text: row.guides, dim: true }], left, right: column(null, badge, slots, '●'), toggle: row.path }
 }
 
 function fileLine(row: Extract<Row, { type: 'file' }>, m: Mark | undefined, input: ViewInput, slots: boolean): Line {
@@ -106,7 +110,8 @@ function fileLine(row: Extract<Row, { type: 'file' }>, m: Mark | undefined, inpu
   const name: Seg = { text: printable(row.name), ...look.name, ...(badge === 'D' ? { color: 'error' } : {}) }
   return {
     key: rowKey(row.path),
-    left: merge([{ text: row.guides, dim: true }, { text: swatch.glyph + ' ', color: swatch.color }, name]),
+    lead: [{ text: row.guides, dim: true }],
+    left: merge([{ text: swatch.glyph + ' ', color: swatch.color }, name]),
     right: column(look.glyph, badge, slots),
   }
 }
@@ -202,33 +207,46 @@ function budgeted(lines: Line[], nodes: number, chars: number): Line[] {
 }
 
 function charsOf(line: Line): number {
-  return [...line.left, ...line.right].reduce((n, s) => n + s.text.length, 0)
+  return [...(line.lead ?? []), ...line.left, ...line.right].reduce((n, s) => n + s.text.length, 0)
 }
 
-/** The elements a line draws as (see the note at the top). */
+/** The elements a line draws as (see the note at the top): a Button only around a left side. */
 export function nodesOf(line: Line): number {
   const segs = (list: Seg[]) => list.reduce((n, s) => n + (isPlain(s) ? 1 : 2), 0)
-  return 1 + (line.toggle !== undefined ? 1 : 0) + segs(line.left) + (line.right.length ? 1 + segs(line.right) : 0)
+  const button = line.toggle !== undefined && line.left.length > 0 ? 1 : 0
+  return 1 + segs(line.lead ?? []) + button + segs(line.left) + (line.right.length ? 1 + segs(line.right) : 0)
 }
 
-/** Cuts the left side with '…' so the line fits `width` cells; the right side is never cut. */
+/** Cuts the lead and left side with '…' so the line fits `width` cells; the right side is never cut. */
 export function fit(line: Line, width: number): Line {
-  const rightCells = cells(line.right.map((s) => s.text).join(''))
+  const lead = line.lead ?? []
+  const rightCells = cellsIn(line.right)
   const room = width - rightCells - (rightCells > 0 ? 1 : 0)
-  if (cells(line.left.map((s) => s.text).join('')) <= room) return line
-  const left: Seg[] = []
+  if (cellsIn(lead) + cellsIn(line.left) <= room) return line
+  const kept = cut([...lead, ...line.left], room)
+  const left = kept.slice(lead.length)
+  return line.lead === undefined ? { ...line, left } : { ...line, lead: kept.slice(0, lead.length), left }
+}
+
+// The segments that fit `room` cells, the last one cut and ended with '…'; none below one cell.
+function cut(segs: Seg[], room: number): Seg[] {
+  const out: Seg[] = []
   let used = 0
-  for (const seg of line.left) {
+  for (const seg of segs) {
     const w = cells(seg.text)
     if (used + w <= room - 1) {
-      left.push(seg)
+      out.push(seg)
       used += w
       continue
     }
-    if (room >= 1) left.push({ ...seg, text: take(seg.text, room - 1 - used) + '…' })
+    if (room >= 1) out.push({ ...seg, text: take(seg.text, room - 1 - used) + '…' })
     break
   }
-  return { ...line, left }
+  return out
+}
+
+function cellsIn(segs: Seg[]): number {
+  return segs.reduce((n, s) => n + cells(s.text), 0)
 }
 
 /** Terminal cells a string takes: wide (East Asian, emoji) characters take two. */

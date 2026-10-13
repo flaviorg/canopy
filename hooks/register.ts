@@ -397,12 +397,15 @@ async function follow($: any): Promise<void> {
   } catch {}
 }
 
-// One line as one row Box; a Button around its left side when it opens or closes a folder.
+// One line as one row Box: the guides, then the left side, in a Button when it opens or closes
+// a folder (none when a narrow pane cut it away: an empty Button is refused), then the right.
 function drawLine(elements: any, line: Line, toggle: (dir: string) => void): any {
   const { Box, Button } = elements
+  const children = (line.lead ?? []).map((seg) => drawSeg(elements, seg))
   const left = line.left.map((seg) => drawSeg(elements, seg))
   const dir = line.toggle
-  const children = dir === undefined ? left : [Button({ key: 'dir:' + printable(dir), plain: true, onPress: () => toggle(dir), children: left })]
+  if (dir !== undefined && left.length > 0) children.push(Button({ key: 'dir:' + printable(dir), plain: true, onPress: () => toggle(dir), children: left }))
+  else children.push(...left)
   if (line.right.length) children.push(Box({ flexGrow: 1 }), ...line.right.map((seg) => drawSeg(elements, seg)))
   return Box({ key: line.key, flexDirection: 'row', children })
 }

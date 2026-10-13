@@ -660,6 +660,29 @@ test('a folder-heavy project stays under the element limit', async ($, on) => {
   }
 })
 
+test('a folder press covers the folder, not the guides', async ($, on) => {
+  stubs(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const docs = await ui.find({ key: 'row:docs' })
+    const button = docs?.children?.find((c: any) => c?.type === 'Button')
+    expect(button?.props.label).toBe('▸ docs/')
+    expect(docs?.text).toBe('├─ ▸ docs/')
+    await ui.unmount()
+  }
+})
+
+test('a pane too narrow for any name still draws', async ($, on) => {
+  stubs(on, { git: '## main\0 M src/a.ts\0' })
+  await start($)
+  for (const bodyColumns of [6, 4, 1, 0]) {
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, bodyColumns } })
+    expect(await ui.find({ key: 'row:src' })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
 test('narrow panes truncate', async ($, on) => {
   stubs(on, { files: { '/w': [file('a-really-long-component-name.tsx')] }, git: '## main\0 M a-really-long-component-name.tsx\0' })
   await start($)
