@@ -36,6 +36,7 @@ let listings = 0 // counts finished listings, so a scan knows which ones came af
 const listedAt = new Map<string, number>()
 const misses = new Map<string, number>() // listings in a row that failed, by folder
 let ig: Ignore = ignoreRules('', '')
+let gitignore: string | null = null // the .gitignore the rules were read from
 let frame = 0
 let tick = 0
 let ticker: { cancel(): void } | null = null
@@ -128,20 +129,31 @@ async function boot($: any): Promise<void> {
     return
   }
   rootName = root.split('/').filter(Boolean).pop() ?? root
-  let gitignore = ''
-  try {
-    gitignore = await $.fs.read(absolute('.gitignore'))
-  } catch {}
-  ig = ignoreRules(gitignore, settings.ignore)
+  gitignore = null
   gitPrefix = await readGitPrefix($)
   // Cached listings are replaced folder by folder, so the pane never blinks empty.
   await freshen($)
 }
 
-// Catches up with the disk and the repository.
+// Catches up with the disk and the repository: the ignore rules, the open folders, git.
 async function freshen($: any): Promise<void> {
+  await readIgnore($)
   await scanVisible($)
   await refreshGit($)
+}
+
+// Reads the root's .gitignore into the rules. A missing file means none; a read that fails
+// otherwise keeps the rules already read. The next scan applies a change.
+async function readIgnore($: any): Promise<void> {
+  let text = ''
+  try {
+    text = await $.fs.read(absolute('.gitignore'))
+  } catch (err) {
+    if (gitignore !== null && !/ENOENT|no such file/i.test(String(err))) return
+  }
+  if (text === gitignore) return
+  gitignore = text
+  ig = ignoreRules(text, settings.ignore)
 }
 
 async function openPane($: any): Promise<boolean> {
@@ -283,6 +295,7 @@ async function afterTool($: any, tool: string, result: any, path: string | undef
   if (!path || tool === 'Read') return
   if (/edit|write/i.test(tool)) {
     await touch($, [path], 'write')
+    await rulesChanged($, [path])
     gitDue = true
   } else {
     await touch($, [path], 'read')
@@ -296,6 +309,7 @@ async function afterBash($: any, command: string, result: any, before: GitState 
   const changed: string[] = result?.bashEditDiff?.changedFiles ?? []
   if (changed.length) {
     await touch($, changed, 'write')
+    await rulesChanged($, changed)
     gitDue = true
   }
   if (allows(settings.activity, 'read')) await touch($, readPaths(command), 'read', await cwdOf($))
@@ -307,6 +321,13 @@ async function afterBash($: any, command: string, result: any, before: GitState 
   } else if (touchesGit(command)) {
     await refreshGit($)
   }
+}
+
+// A write to the root's .gitignore changes what the tree hides: read it again and rescan.
+async function rulesChanged($: any, paths: readonly string[]): Promise<void> {
+  if (root === null || !paths.some((path) => relativeTo(root!, path) === '.gitignore')) return
+  await readIgnore($)
+  await scanVisible($)
 }
 
 // Opens or closes a folder the person pressed. Their choice outlasts Claude's activity there.

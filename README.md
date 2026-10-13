@@ -66,8 +66,8 @@ it leaves. Press a folder (click it, or Tab to it and press Enter) to open or cl
 folder you close stays closed, showing its `·N` count instead. With **Follow** on, the pane
 scrolls to the file Claude is on.
 
-While the pane is shown, canopy rescans the open folders and asks git again every five
-seconds, so changes made outside Claude appear too.
+While the pane is shown, canopy reads `.gitignore` again, rescans the open folders and asks
+git again every five seconds, so changes made outside Claude appear too.
 
 ## Commands
 

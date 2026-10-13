@@ -41,6 +41,8 @@ function stubs(on: any, setup: Setup = {}) {
     open: new Set<string>(),
     answer: (e: any): any => ({ result: { type: 'text', file: { filePath: e.file_path } } }),
     hold: {} as Record<string, Promise<void>>,
+    gitignore: setup.gitignore,
+    readError: 'ENOENT',
   }
   const placed = setup.placed ?? true
   on('session.root', () => ({ value: '/w' }))
@@ -51,7 +53,7 @@ function stubs(on: any, setup: Setup = {}) {
     const entries = calls.files[e.path]
     return entries ? { value: entries } : { deny: 'ENOENT' }
   })
-  on('fs.read', ($: any, e: any) => (e.path === '/w/.gitignore' && setup.gitignore !== undefined ? { value: setup.gitignore } : { deny: 'ENOENT' }))
+  on('fs.read', ($: any, e: any) => (e.path === '/w/.gitignore' && calls.gitignore !== undefined ? { value: calls.gitignore } : { deny: calls.readError }))
   on('process.run', ($: any, e: any) => {
     calls.runs.push(e.argv)
     if (calls.gitFails && e.argv[1] === 'status') return { deny: 'timed out' }
@@ -580,6 +582,28 @@ test('.gitignore and the ignore option hide names', { options: { ignore: 'docs' 
   expect(await ui.find({ key: 'row:docs' })).toBeUndefined()
   expect(await ui.find({ key: 'row:README.md' })).toBeUndefined()
   expect(await ui.find({ key: 'row:package.json' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an edit to .gitignore applies at once, and one made outside Claude at the next poll', async ($, on) => {
+  const { calls, clock } = stubs(on, { gitignore: '' })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'row:docs' })).toBeDefined()
+  calls.gitignore = 'docs\n'
+  await $.tool.call({ tool: 'Edit', file_path: '/w/.gitignore', old_string: '', new_string: 'docs' })
+  expect(await ui.find({ key: 'row:docs' })).toBeUndefined()
+  calls.gitignore = 'docs\n*.md\n'
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:README.md' })).toBeUndefined()
+  // A read that fails for another reason keeps the rules; a removed file hides nothing more.
+  calls.gitignore = undefined
+  calls.readError = 'EMFILE'
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:README.md' })).toBeUndefined()
+  calls.readError = 'ENOENT'
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:README.md' })).toBeDefined()
   await ui.unmount()
 })
 
