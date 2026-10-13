@@ -55,7 +55,7 @@ export function register(on: any, options: Partial<Options>) {
       toasted = true
       $.ui.toast('canopy: run /canopy to open the tree')
     }
-    ensureTicker($)
+    if (root !== null) ensureTicker($)
     return next(e)
   }).catch(($: any, e: any, next: any) => next(e))
 
@@ -301,8 +301,8 @@ function stopTicker(): void {
 }
 
 // Four frames a second while a mark is hot. Every second: follow up on edits (git), let heat
-// fade, and stop once the pane is hidden and nothing moves. Every five seconds while shown,
-// catch what changed outside Claude (a rescan and a git status).
+// fade, and stop once the pane is hidden (heat is worked out again when it is drawn). Every
+// five seconds while shown, catch what changed outside Claude (a rescan and a git status).
 async function onTick($: any): Promise<void> {
   if (busy) return
   busy = true
@@ -317,13 +317,15 @@ async function onTick($: any): Promise<void> {
     if (followTo !== null) await follow($)
     if (tick % 4 !== 0) return
     if (gitDue) await refreshGit($)
+    // A pane that can't be asked about counts as hidden. The next drawing or touch restarts.
+    const panes = await $.ui.panes().catch(() => [])
+    if (root === null || !panes.some((p: any) => p.id === PANE && p.isShown)) return stopTicker()
     const lit = Object.values(marks).some((m) => heat(m, now) !== 'cold')
-    const shown = (await $.ui.panes()).some((p: any) => p.id === PANE && p.isShown)
-    if (!shown && !lit) return stopTicker()
     if (lit || wasLit) $.ui.invalidate('ui.render')
     wasLit = lit
-    if (shown && tick % 20 === 0) await freshen($)
+    if (tick % 20 === 0) await freshen($)
   } catch {
+    stopTicker()
   } finally {
     busy = false
   }

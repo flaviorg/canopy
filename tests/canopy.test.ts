@@ -21,7 +21,7 @@ const FILES = () => ({
   '/w/node_modules': [dir('left-pad')],
 })
 
-type Setup = { files?: Record<string, any[]>; git?: string; gitExit?: number; placed?: boolean; gitignore?: string }
+type Setup = { files?: Record<string, any[]>; git?: string; gitExit?: number; placed?: boolean; gitignore?: string; panesFail?: boolean }
 
 // Everything canopy calls, answered from memory and recorded. `calls.files` and `calls.git`
 // can be changed mid-test to stand for the disk and the repository changing; `calls.gitFails`
@@ -36,6 +36,7 @@ function stubs(on: any, setup: Setup = {}) {
     opens: [] as any[],
     closes: 0,
     toasts: [] as string[],
+    panes: 0,
     open: new Set<string>(),
     answer: (e: any): any => ({ result: { type: 'text', file: { filePath: e.file_path } } }),
   }
@@ -65,9 +66,11 @@ function stubs(on: any, setup: Setup = {}) {
     calls.open.delete(e.id)
     return { value: undefined }
   })
-  on('ui.panes', () => ({
-    value: [...calls.open].map((id) => ({ id, title: 'Canopy', isShown: placed, isFocused: false, isPlaced: placed })),
-  }))
+  on('ui.panes', () => {
+    calls.panes++
+    if (setup.panesFail) return { deny: 'refused' }
+    return { value: [...calls.open].map((id) => ({ id, title: 'Canopy', isShown: placed, isFocused: false, isPlaced: placed })) }
+  })
   on('ui.toast', ($: any, e: any) => {
     calls.toasts.push(e.text)
     return { value: undefined }
@@ -399,6 +402,25 @@ test('a shown pane keeps up with changes made outside Claude', async ($, on) => 
   await clock.advance(5_000)
   expect(await ui.find({ key: 'row:LATER.md' })).toBeDefined()
   await ui.unmount()
+})
+
+test('with the pane closed, the ticker rests right after a touch', { options: { start: 'off' } }, async ($, on) => {
+  const { calls, clock } = stubs(on)
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
+  const panes = calls.panes
+  await clock.advance(120_000)
+  expect(calls.panes - panes).toBeLessThanOrEqual(1)
+})
+
+test('the ticker rests when the panes cannot be asked about', async ($, on) => {
+  const { calls, clock } = stubs(on, { panesFail: true })
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/w/src/a.ts' })
+  await clock.advance(60_000)
+  const panes = calls.panes
+  await clock.advance(600_000)
+  expect(calls.panes).toBe(panes)
 })
 
 test('follow never gets in the way', async ($, on) => {
