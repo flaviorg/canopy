@@ -251,6 +251,28 @@ test('committing a new folder marks the files inside it', async ($, on) => {
   await ui.unmount()
 })
 
+test('a commit of thousands of files is marked without holding Claude up', async ($, on) => {
+  const files: Record<string, any[]> = { '/w': [] }
+  let changed = ''
+  for (let d = 0; d < 100; d++) {
+    files['/w']!.push(dir(`d${d}`))
+    files[`/w/d${d}`] = Array.from({ length: 120 }, (_, i) => file(`f${i}.ts`))
+    for (let i = 0; i < 120; i++) changed += ` M d${d}/f${i}.ts\0`
+  }
+  const { calls } = stubs(on, { files, git: '## main\0' + changed })
+  await start($)
+  calls.answer = (e: any) => {
+    calls.git = '## main\0'
+    return bashResult({ gitOperation: { commit: { sha: 'abc1234', kind: 'committed' } } })
+  }
+  const started = performance.now()
+  await $.tool.call({ tool: 'Bash', command: 'git commit -am x' })
+  expect(performance.now() - started).toBeLessThan(3_000)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'row:d9/f0.ts' }))?.text).toContain('✓')
+  await ui.unmount()
+})
+
 test('a git status that fails after a commit marks nothing and keeps the badges', async ($, on) => {
   const { calls } = stubs(on, { git: '## main\0 M src/a.ts\0 M README.md\0' })
   await start($)

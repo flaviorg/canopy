@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import {
-  allows, anyHot, forget, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, MAX_MARKS, newestHot, summary, WARM_MS, type Marks,
+  allows, anyHot, forget, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, markAll, MAX_MARKS, newestHot, summary, WARM_MS, type Marks,
 } from '../hooks/activity.ts'
 
 const T = 100_000
@@ -92,6 +92,23 @@ test('drops oldest cold marks past MAX_MARKS', async () => {
   expect(m['f0']).toBeUndefined()
   expect(m['f1']).toBeDefined()
   expect(m['hot.ts']).toBeDefined()
+})
+
+test('marking many paths at once keeps MAX_MARKS, the newest and the live ones', async () => {
+  let m: Marks = {}
+  for (let i = 0; i < 10; i++) m[`cold${i}`] = { kind: 'read', at: T - 100_000, reads: 1, writes: 0 }
+  m = mark(m, 'hot.ts', 'write', T)
+  const paths = Array.from({ length: 3 * MAX_MARKS }, (_, i) => `f${i}`)
+  const started = performance.now()
+  const out = markAll(m, paths, 'commit', T + 1)
+  expect(performance.now() - started).toBeLessThan(1_000)
+  expect(Object.keys(out)).toHaveLength(MAX_MARKS)
+  expect(out['cold0']).toBeUndefined()
+  expect(out['hot.ts']).toBeUndefined()
+  expect(out[`f${3 * MAX_MARKS - 1}`]).toEqual({ kind: 'commit', at: T + 1, reads: 0, writes: 0 })
+  expect(m['f0']).toBeUndefined()
+  // The same as marking one by one.
+  expect(markAll({}, ['a', 'b', 'a'], 'read', T)).toEqual(mark(mark(mark({}, 'a', 'read', T), 'b', 'read', T), 'a', 'read', T))
 })
 
 test('the activity option decides which marks count', async () => {

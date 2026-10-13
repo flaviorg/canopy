@@ -3,7 +3,7 @@
 // show; this one lists folders, asks git, watches Claude's tool calls, keeps the state the
 // pane is drawn from, and draws it.
 import { atom, read, update } from 'claude-code'
-import { allows, anyHot, forget, heat, litDirs, mark, type Activity, type MarkKind, type Marks } from './activity.ts'
+import { allows, anyHot, forget, heat, litDirs, markAll, type Activity, type MarkKind, type Marks } from './activity.ts'
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
 import { COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
 import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
@@ -248,7 +248,7 @@ async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: str
   }
   if (lit.length === 0) return []
   const now = await $.clock.now()
-  await update($, marksA, (marks: Marks) => lit.reduce((acc, rel) => mark(acc, rel, kind, now), marks))
+  await update($, marksA, (marks: Marks) => markAll(marks, lit, kind, now))
   // The folders above now open; one a scan forgot meanwhile is listed again.
   for (const rel of lit) for (const dir of ancestors(rel)) if (!(dir in listing) && !listed.has(dir)) {
     listed.add(dir)

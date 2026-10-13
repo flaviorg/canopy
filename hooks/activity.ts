@@ -12,7 +12,7 @@ export type Activity = 'all' | 'writes' | 'none'
 export const HOT_MS = 8_000
 export const WARM_MS = 60_000
 
-/** The most marks kept; past it the oldest cold ones are dropped. */
+/** The most marks kept; past it the oldest are dropped, cold ones first. */
 export const MAX_MARKS = 2000
 
 /**
@@ -20,12 +20,21 @@ export const MAX_MARKS = 2000
  * that lands while a write is still hot leaves the write showing (a write outranks a read).
  */
 export function mark(marks: Marks, path: string, kind: MarkKind, now: number): Marks {
-  const prev = marks[path]
+  return markAll(marks, [path], kind, now)
+}
+
+/** mark() for many paths at once (a commit of thousands of files): one copy, one prune. */
+export function markAll(marks: Marks, paths: readonly string[], kind: MarkKind, now: number): Marks {
+  const out = { ...marks }
+  for (const path of paths) out[path] = touched(out[path], kind, now)
+  return prune(out, now)
+}
+
+function touched(prev: Mark | undefined, kind: MarkKind, now: number): Mark {
   const reads = (prev?.reads ?? 0) + (kind === 'read' ? 1 : 0)
   const writes = (prev?.writes ?? 0) + (kind === 'write' ? 1 : 0)
   const keepWrite = kind === 'read' && prev?.kind === 'write' && heat(prev, now) === 'hot'
-  const next: Mark = keepWrite ? { ...prev!, reads } : { kind, at: now, reads, writes }
-  return prune({ ...marks, [path]: next }, now)
+  return keepWrite ? { ...prev!, reads } : { kind, at: now, reads, writes }
 }
 
 /** Takes marks back: each path returns to what `earlier` had for it, or to nothing. */
@@ -39,14 +48,15 @@ export function forget(marks: Marks, paths: readonly string[], earlier: Marks): 
   return out
 }
 
+// Keeps MAX_MARKS: past it the oldest go, cold before hot or warm, whatever lit them.
 function prune(marks: Marks, now: number): Marks {
   const extra = Object.keys(marks).length - MAX_MARKS
   if (extra <= 0) return marks
-  const oldestCold = Object.entries(marks)
-    .filter(([, m]) => heat(m, now) === 'cold')
-    .sort((a, b) => a[1].at - b[1].at)
+  const live = (m: Mark) => (heat(m, now) === 'cold' ? 0 : 1)
+  const oldest = Object.entries(marks)
+    .sort((a, b) => live(a[1]) - live(b[1]) || a[1].at - b[1].at)
     .slice(0, extra)
-  for (const [path] of oldestCold) delete marks[path]
+  for (const [path] of oldest) delete marks[path]
   return marks
 }
 
