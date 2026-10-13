@@ -170,6 +170,27 @@ test('a Read is lit while it waits, and forgotten when denied', async ($, on) =>
   await ui.unmount()
 })
 
+test('a denied Read leaves an Edit made meanwhile', async ($, on) => {
+  const { calls } = stubs(on)
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  let deny = () => {}
+  const held = new Promise<void>((r) => (deny = r))
+  calls.answer = async (e: any) => {
+    if (e.tool !== 'Read') return { result: 'ok' }
+    await held
+    return { deny: 'The user denied this read.' }
+  }
+  const reading = $.tool.call({ tool: 'Read', file_path: '/w/src/a.ts' })
+  for (let i = 0; i < 100_000 && !(await header(ui)).includes('◉'); i++) await Promise.resolve()
+  await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
+  deny()
+  await reading
+  expect(await header(ui)).toContain('✎ 1')
+  expect(piece(await ui.find({ key: 'row:src/a.ts' }), 'a.ts')?.props.color).toBe('success')
+  await ui.unmount()
+})
+
 test('an Edit marks it written and counts it', async ($, on) => {
   const { calls, clock } = stubs(on)
   await start($)

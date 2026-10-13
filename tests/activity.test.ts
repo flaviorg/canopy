@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import {
-  allows, anyHot, forget, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, markAll, MAX_MARKS, newestHot, summary, WARM_MS, type Marks,
+  allows, anyHot, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, markAll, MAX_MARKS, newestHot, summary, unread, WARM_MS, type Marks,
 } from '../hooks/activity.ts'
 
 const T = 100_000
@@ -119,11 +119,25 @@ test('the activity option decides which marks count', async () => {
   expect(allows('none', 'write')).toBe(false)
 })
 
-test('forget puts back what a mark replaced', async () => {
+test('unread puts back what a read replaced', async () => {
   const earlier = mark({}, 'a.ts', 'write', T)
   let m = mark(earlier, 'a.ts', 'read', T + 20_000)
   m = mark(m, 'b.ts', 'read', T + 20_000)
-  const back = forget(m, ['a.ts', 'b.ts'], earlier)
-  expect(back).toEqual(earlier)
+  const left = { 'a.ts': m['a.ts']!, 'b.ts': m['b.ts']! }
+  expect(unread(m, left, earlier)).toEqual(earlier)
   expect(m['b.ts']).toBeDefined()
+})
+
+test('unread keeps a touch that came after the read', async () => {
+  const earlier: Marks = {}
+  const read = mark(earlier, 'a.ts', 'read', T)
+  const left = { 'a.ts': read['a.ts']! }
+  // An Edit landed while the Read waited: the write stays, less the read's count.
+  const edited = mark(read, 'a.ts', 'write', T + 1_000)
+  expect(unread(edited, left, earlier)).toEqual({ 'a.ts': { kind: 'write', at: T + 1_000, reads: 0, writes: 1 } })
+  // Two reads of one file, both denied, in either order: nothing is left.
+  const second = mark(read, 'a.ts', 'read', T + 2_000)
+  const leftSecond = { 'a.ts': second['a.ts']! }
+  expect(unread(unread(second, left, earlier), leftSecond, read)).toEqual({})
+  expect(unread(unread(second, leftSecond, read), left, earlier)).toEqual({})
 })

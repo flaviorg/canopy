@@ -37,15 +37,32 @@ function touched(prev: Mark | undefined, kind: MarkKind, now: number): Mark {
   return keepWrite ? { ...prev!, reads } : { kind, at: now, reads, writes }
 }
 
-/** Takes marks back: each path returns to what `earlier` had for it, or to nothing. */
-export function forget(marks: Marks, paths: readonly string[], earlier: Marks): Marks {
+/**
+ * Takes back reads that never happened (denied or failed). `left` holds the marks the reads
+ * left, `earlier` the marks before them. A mark still as its read left it returns to what
+ * `earlier` had, or to nothing; one touched again since keeps that touch and loses only the
+ * read's count (and goes when nothing is left of it).
+ */
+export function unread(marks: Marks, left: Marks, earlier: Marks): Marks {
   const out = { ...marks }
-  for (const path of paths) {
-    const before = earlier[path]
-    if (before) out[path] = before
-    else delete out[path]
+  for (const [path, mine] of Object.entries(left)) {
+    const now = out[path]
+    if (now === undefined) continue
+    if (sameMark(now, mine)) {
+      const before = earlier[path]
+      if (before) out[path] = before
+      else delete out[path]
+      continue
+    }
+    const reads = Math.max(0, now.reads - 1)
+    if (now.kind === 'read' && reads === 0 && now.writes === 0) delete out[path]
+    else out[path] = { ...now, reads }
   }
   return out
+}
+
+function sameMark(a: Mark, b: Mark): boolean {
+  return a.kind === b.kind && a.at === b.at && a.reads === b.reads && a.writes === b.writes
 }
 
 // Keeps MAX_MARKS: past it the oldest go, cold before hot or warm, whatever lit them.

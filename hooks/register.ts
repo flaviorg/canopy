@@ -3,7 +3,7 @@
 // show; this one lists folders, asks git, watches Claude's tool calls, keeps the state the
 // pane is drawn from, and draws it.
 import { atom, read, update } from 'claude-code'
-import { allows, anyHot, forget, heat, litDirs, markAll, type Activity, type MarkKind, type Marks } from './activity.ts'
+import { allows, anyHot, heat, litDirs, markAll, unread, type Activity, type MarkKind, type Marks } from './activity.ts'
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
 import { COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
 import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
@@ -75,13 +75,13 @@ export function register(on: any, options: Partial<Options>) {
     const command = e.tool === 'Bash' && typeof e.command === 'string' ? (e.command as string) : null
     // A Read lights its file while it runs, and while it waits for permission.
     const earlier = e.tool === 'Read' && path ? await read($, marksA) : null
-    const reading = earlier ? await touch($, [path!], 'read') : []
+    const reading = earlier ? await touch($, [path!], 'read') : {}
     // A commit is judged against the status just before it (null: git could not say).
     const before = command !== null && isCommit(command) ? await readStatus($, COMMIT_STATUS_ARGV) : undefined
     const r = await next(e)
     try {
       if (!r?.deny && !r?.isError) await afterTool($, e.tool, r.result, path, command, before)
-      else if (reading.length) await update($, marksA, (marks: Marks) => forget(marks, reading, earlier!))
+      else if (earlier) await update($, marksA, (marks: Marks) => unread(marks, reading, earlier))
     } catch {}
     return r
   }).catch(($: any, e: any, next: any) => next(e))
@@ -236,19 +236,20 @@ async function readGitPrefix($: any): Promise<string> {
   }
 }
 
-// Lights files Claude touched and returns their relative paths. Only what the tree can show
-// counts: a path outside the root, hidden by the ignore rules, missing or a folder is left alone.
-async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: string): Promise<string[]> {
-  if (root === null || !allows(settings.activity, kind)) return []
+// Lights files Claude touched and returns the marks it left, by relative path. Only what the
+// tree can show counts: a path outside the root, hidden by the ignore rules, missing or a
+// folder is left alone.
+async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: string): Promise<Marks> {
+  if (root === null || !allows(settings.activity, kind)) return {}
   const lit: string[] = []
   const listed = new Set<string>()
   for (const path of paths) {
     const rel = relativeTo(root, path, cwd ?? root)
     if (rel && !isHidden(rel, ig) && (await showsFile($, rel, kind !== 'read', listed))) lit.push(rel)
   }
-  if (lit.length === 0) return []
+  if (lit.length === 0) return {}
   const now = await $.clock.now()
-  await update($, marksA, (marks: Marks) => markAll(marks, lit, kind, now))
+  const marks = await update($, marksA, (marks: Marks) => markAll(marks, lit, kind, now))
   // The folders above now open; one a scan forgot meanwhile is listed again.
   for (const rel of lit) for (const dir of ancestors(rel)) if (!(dir in listing) && !listed.has(dir)) {
     listed.add(dir)
@@ -256,7 +257,7 @@ async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: str
   }
   if (settings.follow === 'on' && kind !== 'commit') followTo = lit[lit.length - 1]!
   ensureTicker($)
-  return lit
+  return Object.fromEntries(lit.filter((rel) => marks[rel]).map((rel) => [rel, marks[rel]!]))
 }
 
 // Whether the tree holds `rel` as a file. Lists the folders above it first, root down (they
