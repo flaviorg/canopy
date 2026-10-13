@@ -39,12 +39,14 @@ function stubs(on: any, setup: Setup = {}) {
     panes: 0,
     open: new Set<string>(),
     answer: (e: any): any => ({ result: { type: 'text', file: { filePath: e.file_path } } }),
+    hold: {} as Record<string, Promise<void>>,
   }
   const placed = setup.placed ?? true
   on('session.root', () => ({ value: '/w' }))
   on('session.cwd', () => ({ value: '/w' }))
-  on('fs.list', ($: any, e: any) => {
+  on('fs.list', async ($: any, e: any) => {
     calls.lists.push(e.path)
+    await calls.hold[e.path]
     const entries = calls.files[e.path]
     return entries ? { value: entries } : { deny: 'ENOENT' }
   })
@@ -345,6 +347,26 @@ test('pressing a folder expands it, and again closes it', async ($, on) => {
     expect(await ui.find({ key: 'row:docs/guide.md' })).toBeUndefined()
     await ui.unmount()
   }
+})
+
+test('a folder pressed open while a rescan is running stays open', async ($, on) => {
+  const { calls } = stubs(on)
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  calls.answer = () => bashResult()
+  let release = () => {}
+  calls.hold['/w'] = new Promise<void>((r) => (release = r))
+  const lists = calls.lists.length
+  const shell = $.tool.call({ tool: 'Bash', command: 'touch notes.txt' })
+  for (let i = 0; i < 100_000 && calls.lists.length === lists; i++) await Promise.resolve()
+  delete calls.hold['/w']
+  await ui.press({ key: 'dir:docs' })
+  expect(await ui.find({ key: 'row:docs/guide.md' })).toBeDefined()
+  release()
+  await shell
+  await ui.redraw()
+  expect(await ui.find({ key: 'row:docs/guide.md' })).toBeDefined()
+  await ui.unmount()
 })
 
 test('a folder the person closed stays closed while Claude works in it', async ($, on) => {

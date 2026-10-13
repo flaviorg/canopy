@@ -32,6 +32,8 @@ let root: string | null = null
 let rootName = ''
 let gitPrefix = ''
 let listing: Listing = {}
+let listings = 0 // counts finished listings, so a scan knows which ones came after it began
+const listedAt = new Map<string, number>()
 let ig: Ignore = ignoreRules('', '')
 let frame = 0
 let tick = 0
@@ -160,12 +162,16 @@ async function scanDir($: any, rel: string): Promise<void> {
   } catch {
     delete listing[rel]
   }
+  listedAt.set(rel, ++listings)
   if (JSON.stringify(listing[rel]) !== was) $.ui.invalidate('ui.render')
 }
 
 // Lists every folder the tree shows open, parents first (a folder is listed only while its
-// parent shows it), and forgets the listings of folders that closed.
+// parent shows it), then forgets the listings of folders that closed. Scans overlap (a poll,
+// a press, a shell command), so a folder open by the end, or listed by another since this
+// one began, is kept.
 async function scanVisible($: any): Promise<void> {
+  const began = listings
   const open = await openDirs($)
   const listed = new Set<string>()
   for (const dir of [...open].sort((a, b) => depth(a) - depth(b))) {
@@ -173,7 +179,12 @@ async function scanVisible($: any): Promise<void> {
     await scanDir($, dir)
     listed.add(dir)
   }
-  for (const dir of Object.keys(listing)) if (!listed.has(dir)) delete listing[dir]
+  const openNow = await openDirs($)
+  for (const dir of Object.keys(listing)) {
+    if (listed.has(dir) || openNow.has(dir) || (listedAt.get(dir) ?? 0) > began) continue
+    delete listing[dir]
+    listedAt.delete(dir)
+  }
 }
 
 // The folders drawn open: the root, the ones the person opened and the ones Claude is working
@@ -233,6 +244,11 @@ async function touch($: any, paths: readonly string[], kind: MarkKind, cwd?: str
   if (lit.length === 0) return []
   const now = await $.clock.now()
   await update($, marksA, (marks: Marks) => lit.reduce((acc, rel) => mark(acc, rel, kind, now), marks))
+  // The folders above now open; one a scan forgot meanwhile is listed again.
+  for (const rel of lit) for (const dir of ancestors(rel)) if (!(dir in listing) && !listed.has(dir)) {
+    listed.add(dir)
+    await scanDir($, dir)
+  }
   if (settings.follow === 'on' && kind !== 'commit') followTo = lit[lit.length - 1]!
   ensureTicker($)
   return lit
