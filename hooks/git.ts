@@ -8,6 +8,12 @@ export type GitState = { branch: string | null; files: Record<string, Badge> }
 /** The one git command canopy runs: machine-readable, with the branch, NUL-separated. */
 export const STATUS_ARGV: readonly string[] = ['git', 'status', '--porcelain=v1', '-b', '-z']
 
+/**
+ * The same, just before a commit: every untracked file by name rather than its new folder as
+ * one entry, so committing a new folder can mark each file it took.
+ */
+export const COMMIT_STATUS_ARGV: readonly string[] = [...STATUS_ARGV, '--untracked-files=all']
+
 /** Outside a repository (or before the first status): no branch, no badges. */
 export const NO_GIT: GitState = { branch: null, files: {} }
 
@@ -107,7 +113,7 @@ export function withinPrefix(state: GitState, prefix: string): GitState {
   return { branch: state.branch, files }
 }
 
-/** The paths a commit took: changed before, clean after. */
+/** The paths a commit took: changed before, clean after (not even inside an untracked folder). */
 export function committed(before: GitState, after: GitState): string[] {
-  return Object.keys(before.files).filter((path) => !(path in after.files)).sort()
+  return Object.keys(before.files).filter((path) => badgeFor(after.files, path) === null).sort()
 }

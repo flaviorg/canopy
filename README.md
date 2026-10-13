@@ -91,8 +91,9 @@ Set them with `/plugin configure canopy@canopy`:
 
 Canopy reads directory listings under your project root and the root's `.gitignore`. It
 never opens your files. It runs exactly two commands, both read-only, in the project root:
-`git status --porcelain=v1 -b -z` and `git rev-parse --show-prefix`. It makes no network
-requests, and nothing leaves your machine. You can confirm this before installing:
+`git status --porcelain=v1 -b -z` (with `--untracked-files=all` just before a commit, so it
+can tell which new files the commit took) and `git rev-parse --show-prefix`. It makes no
+network requests, and nothing leaves your machine. You can confirm this before installing:
 
 ```bash
 claude plugin validate ./canopy

@@ -30,6 +30,7 @@ function stubs(on: any, setup: Setup = {}) {
   const calls = {
     files: setup.files ?? (FILES() as Record<string, any[]>),
     git: setup.git ?? '## main\0',
+    gitAll: null as string | null, // what `git status --untracked-files=all` says, when it differs
     gitFails: false,
     lists: [] as string[],
     runs: [] as string[][],
@@ -55,7 +56,8 @@ function stubs(on: any, setup: Setup = {}) {
     calls.runs.push(e.argv)
     if (calls.gitFails && e.argv[1] === 'status') return { deny: 'timed out' }
     const exitCode = setup.gitExit ?? 0
-    const stdout = exitCode !== 0 ? '' : e.argv[1] === 'status' ? calls.git : ''
+    const all = e.argv.includes('--untracked-files=all') && calls.gitAll !== null
+    const stdout = exitCode !== 0 ? '' : e.argv[1] === 'status' ? (all ? calls.gitAll : calls.git) : ''
     return { value: { exitCode, stdout, stderr: exitCode ? 'fatal: not a git repository' : '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.open', ($: any, e: any) => {
@@ -232,6 +234,21 @@ test('a commit turns edited files green', async ($, on) => {
     expect(row?.text).not.toMatch(/M$/)
     await ui.unmount()
   }
+})
+
+test('committing a new folder marks the files inside it', async ($, on) => {
+  const { calls } = stubs(on, { git: '## main\0?? docs/\0' })
+  calls.gitAll = '## main\0?? docs/guide.md\0'
+  await start($)
+  calls.answer = (e: any) => {
+    if (e.tool !== 'Bash') return { result: 'ok' }
+    calls.git = calls.gitAll = '## main\0'
+    return bashResult({ gitOperation: { commit: { sha: 'abc1234', kind: 'committed' } } })
+  }
+  await $.tool.call({ tool: 'Bash', command: 'git add docs && git commit -m docs' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(piece(await ui.find({ key: 'row:docs/guide.md' }), '✓')?.props.color).toBe('success')
+  await ui.unmount()
 })
 
 test('a git status that fails after a commit marks nothing and keeps the badges', async ($, on) => {

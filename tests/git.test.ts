@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { badgeFor, committed, NO_GIT, parseStatus, rollup, rollupAll, STATUS_ARGV, withinPrefix } from '../hooks/git.ts'
+import { badgeFor, COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, rollup, rollupAll, STATUS_ARGV, withinPrefix } from '../hooks/git.ts'
 
 test('parses branch and badges', async () => {
   const out = '## main...origin/main\0 M src/a.ts\0A  src/new.ts\0?? notes/\0 D old.ts\0R  b.ts\0a.ts\0'
@@ -62,6 +62,10 @@ test('committed lists files that became clean', async () => {
   const after = { branch: 'main', files: { 'c.ts': 'M' } } as const
   expect(committed(before, after)).toEqual(['a.ts', 'b.ts'])
   expect(committed(NO_GIT, after)).toEqual([])
+  // A file still inside an untracked folder was not committed.
+  const untracked = { branch: 'main', files: { 'docs/a.md': 'U', 'docs/b.md': 'U', 'notes/c.md': 'U' } } as const
+  expect(committed(untracked, { branch: 'main', files: { notes: 'U' } })).toEqual(['docs/a.md', 'docs/b.md'])
+  expect(COMMIT_STATUS_ARGV).toEqual([...STATUS_ARGV, '--untracked-files=all'])
 })
 
 test('a session in a subfolder sees paths relative to it', async () => {

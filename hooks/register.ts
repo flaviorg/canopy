@@ -5,7 +5,7 @@
 import { atom, read, update } from 'claude-code'
 import { allows, anyHot, forget, heat, litDirs, mark, type Activity, type MarkKind, type Marks } from './activity.ts'
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
-import { committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
+import { COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
 import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
 import { paneLines, type Line, type PaneStatus, type Seg } from './view.ts'
 
@@ -77,7 +77,7 @@ export function register(on: any, options: Partial<Options>) {
     const earlier = e.tool === 'Read' && path ? await read($, marksA) : null
     const reading = earlier ? await touch($, [path!], 'read') : []
     // A commit is judged against the status just before it (null: git could not say).
-    const before = command !== null && isCommit(command) ? await readStatus($) : undefined
+    const before = command !== null && isCommit(command) ? await readStatus($, COMMIT_STATUS_ARGV) : undefined
     const r = await next(e)
     try {
       if (!r?.deny && !r?.isError) await afterTool($, e.tool, r.result, path, command, before)
@@ -214,11 +214,11 @@ async function refreshGit($: any): Promise<GitState | null> {
 }
 
 // One `git status`: the branch and badges; none outside a repository; null when git can't say.
-async function readStatus($: any): Promise<GitState | null> {
+async function readStatus($: any, argv: readonly string[] = STATUS_ARGV): Promise<GitState | null> {
   if (root === null) return null
   try {
     // GIT_OPTIONAL_LOCKS=0: a status never takes the index lock from Claude's own git commands.
-    const r = await $.process.run([...STATUS_ARGV], { cwd: root, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_OPTIONAL_LOCKS: '0' } })
+    const r = await $.process.run([...argv], { cwd: root, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_OPTIONAL_LOCKS: '0' } })
     if (r.exitCode === 0) return withinPrefix(parseStatus(r.stdout), gitPrefix)
     return /not a git repository/i.test(r.stderr) ? NO_GIT : null
   } catch {
