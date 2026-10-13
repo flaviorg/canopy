@@ -25,7 +25,7 @@
     "ignore": {
       "type": "string",
       "title": "Also ignore",
-      "description": "Comma-separated names to hide, on top of .gitignore and the built-ins (node_modules, dist…).",
+      "description": "Comma-separated names, *.ext suffixes or folder/path paths to hide, on top of .gitignore and the built-ins (node_modules, dist…).",
       "default": ""
     },
     "follow": {

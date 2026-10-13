@@ -20,20 +20,21 @@ changed, and what's already committed.
 ```text
 ╭──────────────────────────────────────────────╮
 │ ◆ canopy · ⎇ main · ✎ 2 · ◉ 3              ⠹ │
-│ ▾ my-app/                                  ● │
+│ ▾ my-app/                                  • │
 │ ├─ ▸ docs/ ·1                                │
-│ ├─ ▾ src/                                  ● │
-│ │  ├─ ▾ components/                        ● │
+│ ├─ ▾ src/                                  • │
+│ │  ├─ ▾ components/                        • │
 │ │  │  ├─ ▪ Button.tsx                    ● M │
 │ │  │  └─ ▪ Header.tsx                    ◐   │
 │ │  ├─ ▪ index.ts                         ✓   │
 │ │  └─ ▪ utils.ts                           M │
+│ ├─ ▪ notes.md                              U │
 │ ├─ ◆ package.json                            │
-│ ├─ ◆ README.md                           ·   │
-│ └─ ▪ notes.md                              U │
+│ └─ ◆ README.md                           ·   │
 │                                              │
 │ ● editing  ◐ reading  ✓ committed            │
-│ M modified  A added  U new  D deleted        │
+│ M modified  A added  U untracked  D deleted  │
+│ R renamed                                    │
 ╰──────────────────────────────────────────────╯
 ```
 
@@ -53,10 +54,10 @@ Then start a new session, or run `/reload-plugins`. Canopy is also listed in my
 
 | | When | How it shows |
 |---|---|---|
-| ◐ | Claude reads a file: the `Read` tool, or `cat`, `head`, `tail`, `sed -n`, `grep`, `rg`, `wc`… in the shell | The name takes your theme's suggestion color with a spinner for 8 seconds (from the moment Claude asks, so a read waiting for your permission is already lit), then a quiet `·` for a minute |
-| ● | Claude edits a file: `Edit`, `Write`, `NotebookEdit`, or a shell command that changed it | The name turns bold green with a pulsing dot, then stays green for a minute |
-| ✓ | Claude commits | Every file the commit took gets a green check for a minute |
-| `M` `A` `D` `R` `U` | `git status` | Modified, added, deleted, renamed, untracked: right-aligned, in the theme's colors. A folder rolls everything inside it up into one dot |
+| ◐ | Claude reads a file: the `Read` tool, or `cat`, `head`, `tail`, `sed -n`, `grep`, `rg`, `wc`… in the shell | The name takes your theme's suggestion color with a spinner for 8 seconds, then a quiet `·` for a minute. A `Read` lights from the moment Claude asks, so one waiting for your permission is already lit; a shell read lights once the command has run |
+| ● | Claude edits a file: `Edit`, `Write`, `NotebookEdit`, or a shell command that changed it | The name turns bold green with a dot that pulses bright and dim, then stays green for a minute |
+| ✓ | Claude commits | Every file the commit took, new ones included, gets a green check for a minute |
+| `M` `A` `D` `R` `U` | `git status` | Modified, added, deleted, renamed, untracked: right-aligned, in the theme's colors. A folder rolls everything inside it up into one small dot (`•`) in the color of the most serious change |
 | `·3` | Activity inside a closed folder | The count, in canopy green |
 | ▪ ◆ | Always | A swatch in each file type's color; `◆` marks the files that define a project (`package.json`, `README.md`, `CLAUDE.md`, `Dockerfile`…) |
 
@@ -64,7 +65,8 @@ The header counts the files edited (`✎`) and only read (`◉`) this session, a
 anything is live. Folders Claude works in open by themselves and close again a minute after
 it leaves. Press a folder (click it, or Tab to it and press Enter) to open or close it; a
 folder you close stays closed, showing its `·N` count instead. With **Follow** on, the pane
-scrolls to the file Claude is on.
+scrolls to the file Claude is on. In a narrow pane, rows nested deeper than half its width
+show their last levels after a dim `⋯`, so file names stay readable.
 
 While the pane is shown, canopy reads `.gitignore` again, rescans the open folders and asks
 git again every five seconds, so changes made outside Claude appear too.
@@ -84,7 +86,7 @@ Set them with `/plugin configure canopy@canopy`:
 |---|---|---|---|
 | `start` | `on`, `off` | `on` | `on` opens the tree when a session starts, if the terminal is wide enough (otherwise a toast says to run `/canopy`) |
 | `activity` | `all`, `writes`, `none` | `all` | Which of Claude's file activity lights the tree. `writes` skips reads; `none` keeps a plain tree with git badges |
-| `ignore` | comma-separated names | *(empty)* | More names to hide, on top of `.gitignore` and the built-ins (`node_modules`, `.git`, `dist`, `build`, `.next`, `coverage`, `__pycache__`, `.venv`, `target`, `.turbo`, `.cache`, `.DS_Store`) |
+| `ignore` | comma-separated names, `*.ext` suffixes or `folder/path` paths | *(empty)* | More to hide, on top of `.gitignore` and the built-ins (`node_modules`, `.git`, `dist`, `build`, `.next`, `coverage`, `__pycache__`, `.venv`, `target`, `.turbo`, `.cache`, `.DS_Store`) |
 | `follow` | `on`, `off` | `on` | Scroll to the file Claude is touching |
 
 ## Privacy
@@ -116,7 +118,7 @@ Large projects stay responsive: a folder draws at most 500 entries and the tree 
 
 ```bash
 claude plugin validate --strict .   # manifest, hooks and calls
-claude plugin test .                 # 88 tests, no session or sign-in needed
+claude plugin test .                 # 118 tests, no session or sign-in needed
 claude --plugin-dir .                # try it in a session; edits hot-reload
 ```
 
