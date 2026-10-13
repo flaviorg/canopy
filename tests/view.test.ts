@@ -226,6 +226,23 @@ test('truncates to width', async () => {
   expect(text(fit({ key: 'k', left: [{ text: '漢字漢字漢字' }], right: [] }, 6).left)).toBe('漢字…')
 })
 
+test('emoji take two cells, marks and joiners none', async () => {
+  for (const wide of ['🚀', '⚡', '✅', '⭐', '🪩', '😀', '❌', '⏳', '漢', '❤\ufe0f']) expect(cells(wide)).toBe(2)
+  expect(cells('e\u0301')).toBe(1)
+  expect(cells('❤')).toBe(1)
+  expect(cells('a\u200db')).toBe(2)
+  // canopy's own glyphs are one cell each.
+  for (const glyph of '│├└─▸▾▪◆●◐◓◑◒✓✎◉⎇⋯•…⠋') expect(cells(glyph)).toBe(1)
+  // A row with emoji is cut to the width it really takes.
+  const name = '🚀✨-launch-plan-for-the-q3-release-and-beyond.md'
+  const listing: Listing = { '': [file(name)] }
+  const git: GitState = { branch: 'main', files: { [name]: 'M' } }
+  const l = line(paneLines(input({ rows: flatten('w', listing, () => true), git }), 'ready', '/w'), 'row:' + name)
+  expect(full(l)).toBe('└─ ▪ 🚀✨-launch-plan-for-the-q3-releas…')
+  expect(cells(full(l)) + 1 + cells(text(l.right))).toBeLessThanOrEqual(44)
+  expect(text(fit({ key: 'k', left: [{ text: '🚀🚀🚀-launch' }], right: [] }, 6).left)).toBe('🚀🚀…')
+})
+
 test('legend and empty lines', async () => {
   const [activity, git] = legendLines('all', true)
   expect(text(activity!.left)).toBe('● editing  ◐ reading  ✓ committed')

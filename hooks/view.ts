@@ -311,31 +311,50 @@ function cellsIn(segs: Seg[]): number {
   return segs.reduce((n, s) => n + cells(s.text), 0)
 }
 
-/** Terminal cells a string takes: wide (East Asian, emoji) characters take two. */
+/**
+ * Terminal cells a string takes: wide characters (East Asian, emoji) take two, combining marks
+ * and joiners none. A guess that errs wide, so a row never runs past its width.
+ */
 export function cells(text: string): number {
   let n = 0
-  for (const ch of text) n += cellsOf(ch.codePointAt(0)!)
+  let before = 0
+  for (const ch of text) {
+    const w = widthOf(ch, before)
+    n += w
+    if (w > 0) before = ch === EMOJI_LOOK ? 2 : w
+  }
   return n
 }
 
 function take(text: string, room: number): string {
   let out = ''
   let used = 0
+  let before = 0
   for (const ch of text) {
-    const w = cellsOf(ch.codePointAt(0)!)
+    const w = widthOf(ch, before)
     if (used + w > room) break
     out += ch
     used += w
+    if (w > 0) before = ch === EMOJI_LOOK ? 2 : w
   }
   return out
 }
 
-function cellsOf(cp: number): number {
+/** U+FE0F asks for a character's emoji look, two cells wide. */
+const EMOJI_LOOK = '\ufe0f'
+const WIDE_EMOJI = /\p{Emoji_Presentation}/u
+const NO_WIDTH = /[\p{Mn}\p{Me}\u200b-\u200f\u2060\ufe00-\ufe0e]/u
+
+// The cells `ch` adds after a character `before` cells wide.
+function widthOf(ch: string, before: number): number {
+  const cp = ch.codePointAt(0)!
+  if (cp < 0x300) return 1
+  if (ch === EMOJI_LOOK) return before === 1 ? 1 : 0
+  if (NO_WIDTH.test(ch)) return 0
   const wide =
     (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) ||
     (cp >= 0xf900 && cp <= 0xfaff) || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1f64f) || (cp >= 0x1f900 && cp <= 0x1f9ff) ||
-    (cp >= 0x20000 && cp <= 0x3fffd)
+    (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x20000 && cp <= 0x3fffd) || WIDE_EMOJI.test(ch)
   return wide ? 2 : 1
 }
 
