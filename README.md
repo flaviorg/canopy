@@ -61,8 +61,8 @@ glance tells what is happening now, what changed and waits for a commit, and wha
 | | State | When | How it shows |
 |---|---|---|---|
 | ✎ | **editing** | Claude is writing the file: `Edit`, `Write`, `NotebookEdit`, or a shell command that changed it | The name turns bold in Claude's orange, and the pencil pulses bright and dim, for 8 seconds |
-| ● | **edited** | Claude changed it and hasn't committed it | The name stays yellow, like git's `M`, for the rest of the session |
-| ✓ | **committed** | Claude committed it: every file the commit took, new ones included | The name turns green, with a check, until Claude changes it again |
+| ● | **edited** | Claude changed it and it isn't committed yet | The name stays yellow, like git's `M`, until a commit takes it. Put back (`git restore`, `checkout`, `stash`), it goes back to read |
+| ✓ | **committed** | A commit took it: one Claude made (every file it took, new ones included) or one you made in your own terminal or editor | The name turns green, with a check, until Claude changes it again |
 | ◐ | **reading** | Claude is reading it: the `Read` tool, or `cat`, `head`, `tail`, `sed -n`, `grep`, `rg`, `wc`… in the shell | The name turns blue, with a turning quarter moon, for 8 seconds. A `Read` lights from the moment Claude asks, so one waiting for your permission is already lit; a shell read lights once the command has run |
 | ○ | **read** | Claude read it earlier | A blue ring beside its plain name. Reading a changed file spins for a moment, then shows the change again |
 | `M` `A` `D` `R` `U` | git | `git status` | Modified, added, deleted, renamed, untracked: right-aligned, in the theme's colors. A folder rolls everything inside it up into one small dot (`•`) in the color of the most serious change |
@@ -102,9 +102,10 @@ Set them with `/plugin configure canopy@canopy`:
 ## Privacy
 
 Canopy reads directory listings under your project root and the root's `.gitignore`. It
-never opens your files. It runs exactly two commands, both read-only, in the project root:
+never opens your files. It runs exactly three commands, all read-only, in the project root:
 `git status --porcelain=v1 -b -z` (with `--untracked-files=all` just before a commit, so it
-can tell which new files the commit took) and `git rev-parse --show-prefix`. It makes no
+can tell which new files the commit took), `git rev-parse --verify -q HEAD` (so it can tell a
+commit you made from a change you put back) and `git rev-parse --show-prefix`. It makes no
 network requests, and nothing leaves your machine. You can confirm this before installing:
 
 ```bash
@@ -121,9 +122,9 @@ transcript (44 columns wide); otherwise it sits above the prompt. Claude Code pl
 a mod opens on its own only from 144 columns, so on a narrower terminal canopy waits for you
 to run `/canopy`.
 
-The dock shows one pane at a time, with a tab for each: when another mod opens its pane (say
-[crew](https://github.com/flaviorg/crew) as Claude delegates), click canopy's tab or run
-`/canopy` to bring the tree back. In fullscreen, Claude Code's own diff panel may open beside
+Claude Code shows one mod pane at a time, with a tab for each, docked or above the prompt:
+when another mod opens its pane (say [crew](https://github.com/flaviorg/crew) as Claude
+delegates), click canopy's tab or run `/canopy` to bring the tree back. In fullscreen, Claude Code's own diff panel may open beside
 the transcript when a file changes and cover the dock; `/diff` closes it, and Claude Code
 remembers that.
 
@@ -134,7 +135,7 @@ Large projects stay responsive: a folder draws at most 500 entries and the tree 
 
 ```bash
 claude plugin validate --strict .   # manifest, hooks and calls
-claude plugin test .                 # 130 tests, no session or sign-in needed
+claude plugin test .                 # 138 tests, no session or sign-in needed
 claude --plugin-dir .                # try it in a session; edits hot-reload
 ```
 
