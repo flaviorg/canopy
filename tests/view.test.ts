@@ -137,6 +137,30 @@ test('root and guide lines', async () => {
   expect(text(more[1]!.left)).toBe('└─ … 3000 more')
 })
 
+test('deep rows keep their names: past half the width the guides fold into ⋯', async () => {
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+  const listing: Listing = { '': [dir('a')] }
+  names.forEach((n, i) => {
+    const path = names.slice(0, i + 1).join('/')
+    listing[path] = i + 1 < names.length ? [dir(names[i + 1]!)] : [file('Component.tsx'), file('Other.tsx')]
+  })
+  const git: GitState = { branch: 'main', files: { 'a/b/c/d/e/f/g/Component.tsx': 'M' } }
+  const rows = flatten('w', listing, () => true)
+  const narrow = paneLines(input({ rows, git, width: 24 }), 'ready', '/w')
+  const deep = line(narrow, 'row:a/b/c/d/e/f/g/Component.tsx')
+  expect(full(deep)).toBe('⋯     ├─ ▪ Componen…')
+  expect(deep.lead).toEqual([{ text: '⋯     ├─ ', dim: true }])
+  expect(full(line(narrow, 'row:a/b/c/d/e/f/g'))).toBe('⋯     └─ ▾ g/')
+  // Rows that deep line up; shallower ones keep every level.
+  expect(full(line(narrow, 'row:a/b'))).toBe('   └─ ▾ b/')
+  expect(full(line(narrow, 'row:a/b/c'))).toBe('      └─ ▾ c/')
+  expect(full(line(narrow, 'row:a/b/c/d'))).toBe('⋯     └─ ▾ d/')
+  for (const each of narrow) expect(cells(full(each)) + cells(text(each.right))).toBeLessThanOrEqual(24)
+  // A wide pane draws every level.
+  const wide = treeLines(input({ rows, git, width: 120 }))
+  expect(full(line(wide, 'row:a/b/c/d/e/f/g/Component.tsx'))).toBe('                     ├─ ▪ Component.tsx')
+})
+
 test('swatch colors', async () => {
   const lines = treeLines(input())
   expect(segWith(line(lines, 'row:src/a.ts').left, '▪')?.color).toBe('#3178C6')

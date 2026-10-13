@@ -683,6 +683,23 @@ test('a pane too narrow for any name still draws', async ($, on) => {
   }
 })
 
+test('a deep file keeps its name in a narrow pane', async ($, on) => {
+  const files: Record<string, any[]> = { '/w': [dir('a')] }
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+  names.forEach((n, i) => {
+    files['/w/' + names.slice(0, i + 1).join('/')] = i + 1 < names.length ? [dir(names[i + 1]!)] : [file('Component.tsx')]
+  })
+  stubs(on, { files })
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/w/a/b/c/d/e/f/g/Component.tsx' })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface, props: { ...PANE.props, bodyColumns: 24 } })
+    expect((await ui.find({ key: 'row:a/b/c/d/e/f/g/Component.tsx' }))?.text).toMatch(/^⋯ +└─ ▪ Compon/)
+    expect((await ui.find({ key: 'row:a/b/c/d/e/f/g' }))?.text).toMatch(/^⋯ +└─ ▾ g\//)
+    await ui.unmount()
+  }
+})
+
 test('narrow panes truncate', async ($, on) => {
   stubs(on, { files: { '/w': [file('a-really-long-component-name.tsx')] }, git: '## main\0 M a-really-long-component-name.tsx\0' })
   await start($)

@@ -78,6 +78,7 @@ export function treeLines(input: ViewInput): Line[] {
   // Folder facts come from one pass each, not one scan per folder row.
   const inside = hotCounts(marks, input.now)
   const badgeOf = rollupAll(input.git.files)
+  const guides = guidesFor(input.width, slots)
   return input.rows.map((row): Line => {
     switch (row.type) {
       case 'root':
@@ -87,13 +88,25 @@ export function treeLines(input: ViewInput): Line[] {
           right: column(null, badgeOf(''), slots, '●'),
         }
       case 'dir':
-        return dirLine(row, row.expanded ? 0 : inside.get(row.path) ?? 0, badgeOf(row.path), slots)
+        return dirLine({ ...row, guides: guides(row.guides) }, row.expanded ? 0 : inside.get(row.path) ?? 0, badgeOf(row.path), slots)
       case 'file':
-        return fileLine(row, marks[row.path], input, slots)
+        return fileLine({ ...row, guides: guides(row.guides) }, marks[row.path], input, slots)
       case 'more':
-        return { key: 'more:' + printable(row.path), left: merge([{ text: row.guides, dim: true }, { text: `… ${row.count} more`, dim: true }]), right: [] }
+        return { key: 'more:' + printable(row.path), left: [{ text: guides(row.guides) + `… ${row.count} more`, dim: true }], right: [] }
     }
   })
+}
+
+/** What stands for the levels a deep row's guides leave out. */
+export const DEEPER = '⋯  '
+
+// The guides a row draws. They take at most half of what a row has beside its right-hand
+// column, so a deep row keeps its name: past that, a row shows its last levels after a dim '⋯',
+// and every row that deep lines up at the same indent. Each guide piece is three cells.
+function guidesFor(width: number, slots: boolean): (guides: string) => string {
+  const room = width - (slots ? 4 : 2) - 2
+  const pieces = Math.max(2, Math.floor(room / 6))
+  return (guides) => (guides.length <= pieces * 3 ? guides : DEEPER + guides.slice(guides.length - (pieces - 1) * 3))
 }
 
 // `inside`: hot or warm files inside a closed folder, so it says how much is happening there.
