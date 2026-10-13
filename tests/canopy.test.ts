@@ -700,6 +700,18 @@ test('a deep file keeps its name in a narrow pane', async ($, on) => {
   }
 })
 
+test('a long branch leaves the counts in the header', async ($, on) => {
+  stubs(on, { git: '## feature/PROJ-1234-add-the-new-onboarding-flow...origin/x\0' })
+  await start($)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/src/a.ts', old_string: 'a', new_string: 'b' })
+  await $.tool.call({ tool: 'Read', file_path: '/w/README.md' })
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await header(ui)).toMatch(/^◆ canopy · ⎇ feature\/PROJ-123… · ✎ 1 · ◉ 1[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
+    await ui.unmount()
+  }
+})
+
 test('narrow panes truncate', async ($, on) => {
   stubs(on, { files: { '/w': [file('a-really-long-component-name.tsx')] }, git: '## main\0 M a-really-long-component-name.tsx\0' })
   await start($)

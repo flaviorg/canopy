@@ -47,6 +47,19 @@ test('header shows branch and counts', async () => {
   expect(quiet.right).toEqual([])
 })
 
+test('a long branch is cut before the counts are, and the spinner never moves the header', async () => {
+  let marks = mark({}, 'src/a.ts', 'write', NOW)
+  marks = mark(marks, 'README.md', 'read', NOW)
+  const git: GitState = { branch: 'feature/PROJ-1234-add-the-new-onboarding-flow', files: {} }
+  const hot = headerLine(input({ marks, git }))
+  expect(text(hot.left)).toBe('◆ canopy · ⎇ feature/PROJ-123… · ✎ 1 · ◉ 1')
+  expect(cells(text(hot.left)) + 2).toBe(44)
+  expect(text(headerLine(input({ marks, git, now: NOW + 20_000 })).left)).toBe(text(hot.left))
+  // Too narrow for a useful piece of the branch: it goes, the counts stay.
+  expect(text(headerLine(input({ marks, git, width: 30 })).left)).toBe('◆ canopy · ✎ 1 · ◉ 1')
+  expect(text(headerLine(input({ marks, git: { branch: 'main', files: {} }, width: 31 })).left)).toBe('◆ canopy · ⎇ main · ✎ 1 · ◉ 1')
+})
+
 test('hot write pulses', async () => {
   const marks = mark({}, 'src/a.ts', 'write', NOW)
   const f0 = line(treeLines(input({ marks, frame: 0 })), 'row:src/a.ts')
@@ -126,6 +139,20 @@ test('collapsed dir shows activity count', async () => {
   const open = line(treeLines(input({ marks })), 'row:src')
   expect(full(open)).toBe('├─ ▾ src/')
   expect(segWith(open.left, 'src/')).toEqual({ text: 'src/', bold: true })
+})
+
+test('a closed folder keeps its count when its name is cut', async () => {
+  const listing: Listing = { '': [dir('a-rather-long-folder-name-here')], 'a-rather-long-folder-name-here': [file('x.ts')] }
+  let marks = mark({}, 'a-rather-long-folder-name-here/x.ts', 'read', NOW)
+  marks = mark(marks, 'a-rather-long-folder-name-here/y.ts', 'read', NOW)
+  marks = mark(marks, 'a-rather-long-folder-name-here/z.ts', 'read', NOW)
+  const git: GitState = { branch: 'main', files: { 'a-rather-long-folder-name-here/x.ts': 'M' } }
+  const rows = flatten('w', listing, () => false)
+  const l = line(paneLines(input({ rows, marks, git, width: 30 }), 'ready', '/w'), 'row:a-rather-long-folder-name-here')
+  expect(full(l)).toBe('└─ ▸ a-rather-long-fol… ·3')
+  expect(l.left.at(-1)).toEqual({ text: ' ·3', color: ACCENT, keep: true })
+  // With no room to spare, the count goes before the name does.
+  expect(full(line(paneLines(input({ rows, marks, git, width: 12 }), 'ready', '/w'), 'row:a-rather-long-folder-name-here'))).toBe('└─ ▸ a-…')
 })
 
 test('root and guide lines', async () => {

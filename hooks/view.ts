@@ -13,7 +13,8 @@ import { swatchFor } from './filetypes.ts'
 /** canopy's one color, for what is live: the header spinner and activity inside closed folders. */
 export const ACCENT = '#5FB97A'
 
-export type Seg = { text: string; color?: string; bold?: true; dim?: true }
+/** `keep`: the end of a left side a cut leaves whole while it can (a closed folder's count). */
+export type Seg = { text: string; color?: string; bold?: true; dim?: true; keep?: true }
 /**
  * One row of the pane: `lead`, then `left`, then `right` at the edge. `toggle` is the folder a
  * press on `left` opens or closes.
@@ -45,15 +46,30 @@ export const CHAR_BUDGET = 95_000
 
 const BADGE_COLOR: Record<Badge, string> = { M: 'warning', A: 'success', D: 'error', R: 'suggestion', U: 'success' }
 
-/** `◆ canopy · ⎇ main · ✎ 3 · ◉ 2`, and a spinner on the right while anything is hot. */
+/** The fewest cells a cut branch name keeps; below it the branch is left out. */
+const BRANCH_MIN = 6
+
+/**
+ * `◆ canopy · ⎇ main · ✎ 3 · ◉ 2`, and a spinner on the right while anything is hot. Only the
+ * branch is cut to fit, since the counts are what change; and the spinner's two cells are
+ * always left free, so the line never moves when it comes and goes.
+ */
 export function headerLine(input: ViewInput): Line {
   const marks = shown(input.marks, input.activity)
   const { edited, read } = summary(marks)
-  const left: Seg[] = [{ text: '◆ canopy', bold: true }]
-  const fact = (seg: Seg) => left.push({ text: ' · ', dim: true }, seg)
-  if (input.git.branch !== null) fact({ text: '⎇ ' + printable(input.git.branch), dim: true })
-  if (edited > 0) fact({ text: '✎ ' + edited, color: 'success' })
-  if (read > 0) fact({ text: '◉ ' + read, color: 'suggestion' })
+  const title: Seg = { text: '◆ canopy', bold: true }
+  const dot: Seg = { text: ' · ', dim: true }
+  const counts: Seg[] = []
+  if (edited > 0) counts.push(dot, { text: '✎ ' + edited, color: 'success' })
+  if (read > 0) counts.push(dot, { text: '◉ ' + read, color: 'suggestion' })
+  const left: Seg[] = [title]
+  if (input.git.branch !== null) {
+    const room = input.width - 2 - cells(title.text + dot.text + '⎇ ') - cellsIn(counts)
+    const branch = printable(input.git.branch)
+    if (cells(branch) <= room) left.push(dot, { text: '⎇ ' + branch, dim: true })
+    else if (room >= BRANCH_MIN) left.push(dot, { text: '⎇ ' + take(branch, room - 1) + '…', dim: true })
+  }
+  left.push(...counts)
   const right: Seg[] = anyHot(marks, input.now) ? [{ text: pick(BRAILLE, input.frame), color: ACCENT }] : []
   return { key: 'header', left: merge(left), right }
 }
@@ -112,7 +128,7 @@ function guidesFor(width: number, slots: boolean): (guides: string) => string {
 // `inside`: hot or warm files inside a closed folder, so it says how much is happening there.
 function dirLine(row: Extract<Row, { type: 'dir' }>, inside: number, badge: Badge | null, slots: boolean): Line {
   const left: Seg[] = [{ text: row.expanded ? '▾ ' : '▸ ', dim: true }, { text: printable(row.name) + '/', bold: true }]
-  if (inside > 0) left.push({ text: ' ·' + inside, color: ACCENT })
+  if (inside > 0) left.push({ text: ' ·' + inside, color: ACCENT, keep: true })
   return { key: rowKey(row.path), lead: [{ text: row.guides, dim: true }], left, right: column(null, badge, slots, '●'), toggle: row.path }
 }
 
@@ -230,14 +246,21 @@ export function nodesOf(line: Line): number {
   return 1 + segs(line.lead ?? []) + button + segs(line.left) + (line.right.length ? 1 + segs(line.right) : 0)
 }
 
-/** Cuts the lead and left side with '…' so the line fits `width` cells; the right side is never cut. */
+/**
+ * Cuts the lead and left side with '…' so the line fits `width` cells; the right side is never
+ * cut. A kept end stays whole after the cut while the rest still has a few cells to show.
+ */
 export function fit(line: Line, width: number): Line {
   const lead = line.lead ?? []
   const rightCells = cellsIn(line.right)
   const room = width - rightCells - (rightCells > 0 ? 1 : 0)
   if (cellsIn(lead) + cellsIn(line.left) <= room) return line
-  const kept = cut([...lead, ...line.left], room)
-  const left = kept.slice(lead.length)
+  let end = line.left.length
+  while (end > 0 && line.left[end - 1]!.keep) end--
+  const tail = line.left.slice(end)
+  const keep = tail.length > 0 && room - cellsIn(tail) >= cellsIn(lead) + 4
+  const kept = keep ? cut([...lead, ...line.left.slice(0, end)], room - cellsIn(tail)) : cut([...lead, ...line.left], room)
+  const left = [...kept.slice(lead.length), ...(keep ? tail : [])]
   return line.lead === undefined ? { ...line, left } : { ...line, lead: kept.slice(0, lead.length), left }
 }
 
@@ -296,7 +319,8 @@ function merge(segs: Seg[]): Seg[] {
   for (const seg of segs) {
     if (!seg.text) continue
     const last = out[out.length - 1]
-    if (last && last.color === seg.color && last.bold === seg.bold && last.dim === seg.dim) out[out.length - 1] = { ...last, text: last.text + seg.text }
+    const same = last && last.color === seg.color && last.bold === seg.bold && last.dim === seg.dim && last.keep === seg.keep
+    if (same) out[out.length - 1] = { ...last, text: last.text + seg.text }
     else out.push(seg)
   }
   return out
