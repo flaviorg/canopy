@@ -115,7 +115,7 @@ Large projects stay responsive: the tree draws at most 2,000 rows and folds the 
 
 ```bash
 claude plugin validate --strict .   # manifest, hooks and calls
-claude plugin test .                 # 87 tests, no session or sign-in needed
+claude plugin test .                 # 88 tests, no session or sign-in needed
 claude --plugin-dir .                # try it in a session; edits hot-reload
 ```
 
