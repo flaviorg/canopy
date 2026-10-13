@@ -101,6 +101,8 @@ export function register(on: any, options: Partial<Options>) {
   }).catch(($: any, e: any, next: any) => (next.called ? next(e) : { text: 'canopy could not open: ' + next.error.kind }))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($: any, e: any) => {
+    // Shown again after the ticker stopped (hidden and idle): keep up from here.
+    ensureTicker($)
     const marks = await read($, marksA)
     const git = await read($, gitA)
     const now = await $.clock.now()
@@ -128,12 +130,12 @@ async function boot($: any): Promise<void> {
     gitignore = await $.fs.read(absolute('.gitignore'))
   } catch {}
   ig = ignoreRules(gitignore, settings.ignore)
-  // The cached listings stay until rescanned, so the pane never blinks empty.
   gitPrefix = await readGitPrefix($)
-  await scanVisible($)
-  await refreshGit($)
+  // Cached listings are replaced folder by folder, so the pane never blinks empty.
+  await freshen($)
 }
 
+// Catches up with the disk and the repository.
 async function freshen($: any): Promise<void> {
   await scanVisible($)
   await refreshGit($)

@@ -346,6 +346,28 @@ test('heat fades with the clock', async ($, on) => {
   await ui.unmount()
 })
 
+test('a shown pane keeps up with changes made outside Claude', async ($, on) => {
+  const { calls, clock } = stubs(on)
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  calls.files['/w'] = [...calls.files['/w']!, file('TODO.md')]
+  calls.git = '## main\0?? TODO.md\0'
+  await clock.advance(5_000)
+  expect((await ui.find({ key: 'row:TODO.md' }))?.text).toMatch(/U$/)
+  // Hidden, it stops polling; drawn again, it picks up where it left off.
+  calls.open.delete('canopy')
+  await clock.advance(1_000)
+  const lists = calls.lists.length
+  await clock.advance(10_000)
+  expect(calls.lists.length).toBe(lists)
+  calls.open.add('canopy')
+  await ui.redraw()
+  calls.files['/w'] = [...calls.files['/w']!, file('LATER.md')]
+  await clock.advance(5_000)
+  expect(await ui.find({ key: 'row:LATER.md' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('follow never gets in the way', async ($, on) => {
   // The test kit has no `ui.scroll`, so canopy's scroll is refused here as on a hidden pane:
   // the touch still lands and the pane still draws.
