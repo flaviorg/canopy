@@ -115,7 +115,7 @@ function activityLook(m: Mark | undefined, now: number, frame: number): Look {
 function column(glyph: Seg | null, badge: Badge | null, slots: boolean, badgeGlyph?: string): Seg[] {
   if (!slots || badge === null) {
     if (!glyph) return []
-    return slots ? merge([{ ...glyph, text: glyph.text + ' ' }, { text: ' ' }]) : [glyph]
+    return [slots ? { ...glyph, text: glyph.text + '  ' } : glyph]
   }
   const mark: Seg = { text: badgeGlyph ?? badge, color: BADGE_COLOR[badge], ...(badge === 'U' ? { dim: true as const } : {}) }
   return merge([glyph ? { ...glyph, text: glyph.text + ' ' } : { text: '  ' }, mark])
