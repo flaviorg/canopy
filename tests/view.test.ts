@@ -3,7 +3,7 @@ import { flatten, type Listing } from '../hooks/tree.ts'
 import { mark, type Marks } from '../hooks/activity.ts'
 import { NO_GIT, type GitState } from '../hooks/git.ts'
 import {
-  ACCENT, BRAILLE, cells, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, SPIN, treeLines,
+  ACCENT, BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, SPIN, treeLines,
   type Line, type Seg, type ViewInput,
 } from '../hooks/view.ts'
 
@@ -205,6 +205,15 @@ test('node budget keeps a huge tree drawable', async () => {
   expect(more).toBeDefined()
   expect(text(more!.left)).toMatch(/^… \d+ more$/)
   expect(lines.at(-1)!.key).toBe('legend:git')
+})
+
+test('the text budget keeps the end of a wide pane visible', async () => {
+  const long = 'x'.repeat(150)
+  const listing: Listing = { '': Array.from({ length: 2000 }, (_, i) => file(`${long}-${i}.ts`)) }
+  const lines = paneLines(input({ rows: flatten('w', listing, () => true), width: 200 }), 'ready', '/w')
+  const chars = lines.reduce((n, l) => n + [...l.left, ...l.right].reduce((m, s) => m + s.text.length, 0), 0)
+  expect(chars).toBeLessThanOrEqual(CHAR_BUDGET)
+  expect(lines.find((l) => l.key === 'overflow')).toBeDefined()
 })
 
 test('nodes: a box, one per plain segment, two per styled one', async () => {

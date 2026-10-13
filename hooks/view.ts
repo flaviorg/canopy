@@ -31,9 +31,13 @@ export const BRAILLE: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '�
 
 /**
  * Elements a pane may hold, with room to spare under the engine's 20,000 (every element and
- * every string counts). A tree that would pass it ends in a "… N more" line instead.
+ * every string counts): a tree past it is refused whole. A tree that would pass it ends in a
+ * "… N more" line instead.
  */
 export const NODE_BUDGET = 19_000
+
+/** Characters a pane draws: the engine draws 100,000 in all, so the end stays in sight. */
+export const CHAR_BUDGET = 95_000
 
 const BADGE_COLOR: Record<Badge, string> = { M: 'warning', A: 'success', D: 'error', R: 'suggestion', U: 'success' }
 
@@ -160,21 +164,29 @@ export function paneLines(input: ViewInput, status: PaneStatus, root: string): L
   const tree = treeLines(input)
   if (status === 'empty') return [header, ...tree.map((l) => fit(l, input.width)), emptyLine('empty', root)]
   const legend = legendLines(input.activity, hasGit(input.git))
-  const tail = legend.length ? [{ key: 'spacer', left: [{ text: ' ' }], right: [] }, ...legend] : []
-  const fixed = 1 + nodesOf(header) + tail.reduce((n, l) => n + nodesOf(l), 0)
-  return [header, ...[...budgeted(tree, NODE_BUDGET - fixed), ...tail].map((l) => fit(l, input.width))]
+  const tail = [...(legend.length ? [{ key: 'spacer', left: [{ text: ' ' }], right: [] }] : []), ...legend].map((l) => fit(l, input.width))
+  const fixed = [header, ...tail]
+  const nodes = NODE_BUDGET - 1 - fixed.reduce((n, l) => n + nodesOf(l), 0)
+  const chars = CHAR_BUDGET - fixed.reduce((n, l) => n + charsOf(l), 0)
+  return [header, ...budgeted(tree.map((l) => fit(l, input.width)), nodes, chars), ...tail]
 }
 
-// Keeps lines while they fit the budget; the rest become one "… N more" line.
-function budgeted(lines: Line[], budget: number): Line[] {
+// Keeps lines while they fit both budgets; the rest become one "… N more" line.
+function budgeted(lines: Line[], nodes: number, chars: number): Line[] {
   const more = (n: number): Line => ({ key: 'overflow', left: [{ text: `… ${n} more`, dim: true }], right: [] })
-  const reserve = nodesOf(more(lines.length))
-  let used = 0
+  const reserve = more(lines.length)
+  let usedNodes = nodesOf(reserve)
+  let usedChars = charsOf(reserve)
   for (let i = 0; i < lines.length; i++) {
-    used += nodesOf(lines[i]!)
-    if (used > budget - reserve) return [...lines.slice(0, i), more(lines.length - i)]
+    usedNodes += nodesOf(lines[i]!)
+    usedChars += charsOf(lines[i]!)
+    if (usedNodes > nodes || usedChars > chars) return [...lines.slice(0, i), more(lines.length - i)]
   }
   return lines
+}
+
+function charsOf(line: Line): number {
+  return [...line.left, ...line.right].reduce((n, s) => n + s.text.length, 0)
 }
 
 /** The elements a line draws as (see the note at the top). */
