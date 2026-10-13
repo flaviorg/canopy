@@ -466,8 +466,10 @@ test('heat fades with the clock', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const row = async () => (await ui.find({ key: 'row:src/a.ts' }))?.text.trim() ?? ''
   expect(await row()).toMatch(/●$/)
+  expect(piece(await ui.find({ key: 'row:src/a.ts' }), '●')?.props).toEqual({ color: 'success' })
   await clock.advance(250)
-  expect(await row()).toMatch(/◉$/)
+  expect(await row()).toMatch(/●$/)
+  expect(piece(await ui.find({ key: 'row:src/a.ts' }), '●')?.props).toEqual({ color: 'success', dimColor: true })
   expect(await header(ui)).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]$/)
   await clock.advance(9_000)
   expect(await row()).toMatch(/a\.ts$/)

@@ -3,7 +3,7 @@ import { flatten, type Listing } from '../hooks/tree.ts'
 import { mark, type Marks } from '../hooks/activity.ts'
 import { NO_GIT, type GitState } from '../hooks/git.ts'
 import {
-  ACCENT, BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, printable, rowKey, SPIN,
+  ACCENT, BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, printable, ROLLUP, rowKey, SPIN,
   treeLines,
   type Line, type Seg, type ViewInput,
 } from '../hooks/view.ts'
@@ -64,8 +64,8 @@ test('hot write pulses', async () => {
   const marks = mark({}, 'src/a.ts', 'write', NOW)
   const f0 = line(treeLines(input({ marks, frame: 0 })), 'row:src/a.ts')
   const f1 = line(treeLines(input({ marks, frame: 1 })), 'row:src/a.ts')
-  expect(text(f0.right).trim()).toBe('●')
-  expect(text(f1.right).trim()).toBe('◉')
+  expect(f0.right).toEqual([{ text: '●', color: 'success' }])
+  expect(f1.right).toEqual([{ text: '●', color: 'success', dim: true }])
   expect(nameSeg(f0, 'a.ts')).toEqual({ text: 'a.ts', color: 'success', bold: true })
 })
 
@@ -119,8 +119,9 @@ test('git badges right-aligned after activity', async () => {
 test('folders roll their badges up into one dot', async () => {
   const git: GitState = { branch: 'main', files: { 'src/a.ts': 'M', 'src/b.md': 'D' } }
   const lines = treeLines(input({ git }))
-  expect(line(lines, 'row:src').right.at(-1)).toEqual({ text: '●', color: 'error' })
-  expect(line(lines, 'row:').right.at(-1)).toEqual({ text: '●', color: 'error' })
+  expect(line(lines, 'row:src').right.at(-1)).toEqual({ text: ROLLUP, color: 'error' })
+  expect(line(lines, 'row:').right.at(-1)).toEqual({ text: ROLLUP, color: 'error' })
+  expect(ROLLUP).toBe('•')
   const clean = treeLines(input({ git: { branch: 'main', files: {} } }))
   expect(line(clean, 'row:src').right).toEqual([])
 })

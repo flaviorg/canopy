@@ -46,6 +46,9 @@ export const CHAR_BUDGET = 95_000
 
 const BADGE_COLOR: Record<Badge, string> = { M: 'warning', A: 'success', D: 'error', R: 'suggestion', U: 'success' }
 
+/** A folder's roll-up of the badges inside it: a small dot in the worst one's color, never ● (editing). */
+export const ROLLUP = '•'
+
 /** The fewest cells a cut branch name keeps; below it the branch is left out. */
 const BRANCH_MIN = 6
 
@@ -101,7 +104,7 @@ export function treeLines(input: ViewInput): Line[] {
         return {
           key: rowKey(''),
           left: [{ text: '▾ ', dim: true }, { text: printable(row.name) + '/', bold: true }],
-          right: column(null, badgeOf(''), slots, '●'),
+          right: column(null, badgeOf(''), slots, ROLLUP),
         }
       case 'dir':
         return dirLine({ ...row, guides: guides(row.guides) }, row.expanded ? 0 : inside.get(row.path) ?? 0, badgeOf(row.path), slots)
@@ -129,7 +132,7 @@ function guidesFor(width: number, slots: boolean): (guides: string) => string {
 function dirLine(row: Extract<Row, { type: 'dir' }>, inside: number, badge: Badge | null, slots: boolean): Line {
   const left: Seg[] = [{ text: row.expanded ? '▾ ' : '▸ ', dim: true }, { text: printable(row.name) + '/', bold: true }]
   if (inside > 0) left.push({ text: ' ·' + inside, color: ACCENT, keep: true })
-  return { key: rowKey(row.path), lead: [{ text: row.guides, dim: true }], left, right: column(null, badge, slots, '●'), toggle: row.path }
+  return { key: rowKey(row.path), lead: [{ text: row.guides, dim: true }], left, right: column(null, badge, slots, ROLLUP), toggle: row.path }
 }
 
 function fileLine(row: Extract<Row, { type: 'file' }>, m: Mark | undefined, input: ViewInput, slots: boolean): Line {
@@ -147,15 +150,16 @@ function fileLine(row: Extract<Row, { type: 'file' }>, m: Mark | undefined, inpu
 
 type Look = { name: Omit<Seg, 'text'>; glyph: Seg | null }
 
-// How a mark shows: hot moves (a pulse for a write, a spinner for a read), warm keeps the color,
-// a commit keeps its check for the whole minute.
+// How a mark shows: hot moves (a write's dot pulses bright and dim, a read spins), warm keeps
+// the color, a commit keeps its check for the whole minute. The pulse keeps one glyph, so ●
+// always means editing and ◉ (the header's count) always means read.
 function activityLook(m: Mark | undefined, now: number, frame: number): Look {
   const h = heat(m, now)
   if (!m || h === 'cold') return { name: {}, glyph: null }
   if (m.kind === 'commit') return { name: { color: 'success' }, glyph: { text: '✓', color: 'success' } }
   if (m.kind === 'write') {
     if (h === 'warm') return { name: { color: 'success' }, glyph: null }
-    return { name: { color: 'success', bold: true }, glyph: { text: frame % 2 === 0 ? '●' : '◉', color: 'success' } }
+    return { name: { color: 'success', bold: true }, glyph: { text: '●', color: 'success', ...(frame % 2 === 0 ? {} : { dim: true as const }) } }
   }
   if (h === 'warm') return { name: {}, glyph: { text: '·', color: 'suggestion' } }
   return { name: { color: 'suggestion' }, glyph: { text: pick(SPIN, frame), color: 'suggestion' } }
