@@ -176,25 +176,47 @@ function column(glyph: Seg | null, badge: Badge | null, slots: boolean, badgeGly
   return merge([glyph ? { ...glyph, text: glyph.text + ' ' } : { text: '  ' }, mark])
 }
 
-/** The key to the glyphs: activity (as the option allows), then git's letters in a repository. */
-export function legendLines(activity: Activity, git: boolean): Line[] {
+/**
+ * The key to the glyphs: activity (as the option allows), then git's letters in a repository.
+ * Entries are packed into as many lines as `width` needs; an entry is never cut in two.
+ */
+export function legendLines(activity: Activity, git: boolean, width = Infinity): Line[] {
   const lines: Line[] = []
-  const entries = (items: Array<[Seg, string]>): Seg[] =>
-    merge(items.flatMap(([glyph, label], i) => [glyph, { text: ' ' + label + (i < items.length - 1 ? '  ' : ''), dim: true as const }]))
   if (activity !== 'none') {
     const items: Array<[Seg, string]> = [[{ text: '●', color: 'success' }, 'editing']]
     if (activity === 'all') items.push([{ text: '◐', color: 'suggestion' }, 'reading'])
     items.push([{ text: '✓', color: 'success' }, 'committed'])
-    lines.push({ key: 'legend', left: entries(items), right: [] })
+    lines.push(...pack('legend', items, width))
   }
   if (git) {
-    const letters = (['M', 'A', 'U', 'D'] as const).map((b): [Seg, string] => [
+    const label: Record<Badge, string> = { M: 'modified', A: 'added', U: 'untracked', D: 'deleted', R: 'renamed' }
+    const items = (['M', 'A', 'U', 'D', 'R'] as const).map((b): [Seg, string] => [
       { text: b, color: BADGE_COLOR[b], ...(b === 'U' ? { dim: true as const } : {}) },
-      { M: 'modified', A: 'added', U: 'new', D: 'deleted' }[b],
+      label[b],
     ])
-    lines.push({ key: 'legend:git', left: entries(letters), right: [] })
+    lines.push(...pack('legend:git', items, width))
   }
   return lines
+}
+
+// Legend entries (a glyph, then its label in dim) two cells apart, a new line when the next
+// one would pass `width`. Lines after the first are keyed `<key>:2`, `<key>:3`…
+function pack(key: string, items: Array<[Seg, string]>, width: number): Line[] {
+  const rows: Seg[][] = []
+  let used = 0
+  for (const [glyph, label] of items) {
+    const entry: Seg[] = [glyph, { text: ' ' + label, dim: true }]
+    const w = cellsIn(entry)
+    const row = rows[rows.length - 1]
+    if (row && used + 2 + w <= width) {
+      row.push({ text: '  ', dim: true }, ...entry)
+      used += 2 + w
+    } else {
+      rows.push(entry)
+      used = w
+    }
+  }
+  return rows.map((segs, i) => ({ key: i === 0 ? key : `${key}:${i + 1}`, left: merge(segs), right: [] }))
 }
 
 /** What the pane says instead of a tree: before the first scan, when it fails, or when empty. */
@@ -217,7 +239,7 @@ export function paneLines(input: ViewInput, status: PaneStatus, root: string): L
   if (status === 'loading' || status === 'unreadable') return [header, emptyLine(status, root)]
   const tree = treeLines(input)
   if (status === 'empty') return [header, ...tree.map((l) => fit(l, input.width)), emptyLine('empty', root)]
-  const legend = legendLines(input.activity, hasGit(input.git))
+  const legend = legendLines(input.activity, hasGit(input.git), input.width)
   const tail = [...(legend.length ? [{ key: 'spacer', left: [{ text: ' ' }], right: [] }] : []), ...legend].map((l) => fit(l, input.width))
   const fixed = [header, ...tail]
   const nodes = NODE_BUDGET - 1 - fixed.reduce((n, l) => n + nodesOf(l), 0)

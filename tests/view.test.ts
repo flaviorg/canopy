@@ -231,8 +231,9 @@ test('legend and empty lines', async () => {
   expect(text(activity!.left)).toBe('● editing  ◐ reading  ✓ committed')
   expect(segWith(activity!.left, '●')?.color).toBe('success')
   expect(segWith(activity!.left, 'editing')?.dim).toBe(true)
-  expect(text(git!.left)).toBe('M modified  A added  U new  D deleted')
+  expect(text(git!.left)).toBe('M modified  A added  U untracked  D deleted  R renamed')
   expect(segWith(git!.left, 'M')?.color).toBe('warning')
+  expect(segWith(git!.left, 'R')?.color).toBe('suggestion')
   expect(legendLines('all', false)).toHaveLength(1)
   expect(text(legendLines('writes', false)[0]!.left)).toBe('● editing  ✓ committed')
   expect(legendLines('none', false)).toEqual([])
@@ -241,9 +242,29 @@ test('legend and empty lines', async () => {
   expect(emptyLine('empty', '/w').left).toEqual([{ text: 'Empty folder — files appear here as Claude creates them.', dim: true }])
 })
 
+test('the legend packs whole entries into the width', async () => {
+  const at = (width: number) => [...legendLines('all', true, width)].map((l) => [l.key, text(l.left)])
+  expect(at(44)).toEqual([
+    ['legend', '● editing  ◐ reading  ✓ committed'],
+    ['legend:git', 'M modified  A added  U untracked  D deleted'],
+    ['legend:git:2', 'R renamed'],
+  ])
+  expect(at(30)).toEqual([
+    ['legend', '● editing  ◐ reading'],
+    ['legend:2', '✓ committed'],
+    ['legend:git', 'M modified  A added'],
+    ['legend:git:2', 'U untracked  D deleted'],
+    ['legend:git:3', 'R renamed'],
+  ])
+  const lines = paneLines(input({ git: { branch: 'main', files: {} }, width: 30 }), 'ready', '/w')
+  for (const l of lines.filter((l) => l.key.startsWith('legend'))) expect(text(l.left)).not.toContain('…')
+})
+
 test('pane lines: header, tree, spacer, legend; or the empty states', async () => {
   const ready = paneLines(input({ git: { branch: 'main', files: {} } }), 'ready', '/w')
-  expect(ready.map((l) => l.key)).toEqual(['header', 'row:', 'row:src', 'row:src/a.ts', 'row:src/b.md', 'row:README.md', 'row:package.json', 'spacer', 'legend', 'legend:git'])
+  expect(ready.map((l) => l.key)).toEqual([
+    'header', 'row:', 'row:src', 'row:src/a.ts', 'row:src/b.md', 'row:README.md', 'row:package.json', 'spacer', 'legend', 'legend:git', 'legend:git:2',
+  ])
   const empty = paneLines(input({ rows: [{ type: 'root', path: '', name: 'w' }] }), 'empty', '/w')
   expect(empty.map((l) => l.key)).toEqual(['header', 'row:', 'empty'])
   const unreadable = paneLines(input({ rows: [] }), 'unreadable', '/w')
@@ -263,7 +284,7 @@ test('node budget keeps a huge tree drawable', async () => {
   const more = lines.find((l) => l.key === 'overflow')
   expect(more).toBeDefined()
   expect(text(more!.left)).toMatch(/^… \d+ more$/)
-  expect(lines.at(-1)!.key).toBe('legend:git')
+  expect(lines.at(-1)!.key).toBe('legend:git:2')
 })
 
 test('the text budget keeps the end of a wide pane visible', async () => {
