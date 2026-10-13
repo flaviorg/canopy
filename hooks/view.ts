@@ -150,21 +150,24 @@ export function emptyLine(reason: 'unreadable' | 'empty', root: string): Line {
   return { key: 'empty', left: [say], right: [] }
 }
 
-/** Every line of the pane, fitted to its width and kept under the node budget. */
+/**
+ * Every line of the pane, fitted to its width and kept under the node budget. The empty-state
+ * sentence is left whole: it wraps rather than being cut.
+ */
 export function paneLines(input: ViewInput, status: PaneStatus, root: string): Line[] {
-  const header = headerLine(input)
-  if (status === 'unreadable') return [header, emptyLine('unreadable', root)].map((l) => fit(l, input.width))
+  const header = fit(headerLine(input), input.width)
+  if (status === 'unreadable') return [header, emptyLine('unreadable', root)]
   const tree = treeLines(input)
-  if (status === 'empty') return [header, ...tree, emptyLine('empty', root)].map((l) => fit(l, input.width))
+  if (status === 'empty') return [header, ...tree.map((l) => fit(l, input.width)), emptyLine('empty', root)]
   const legend = legendLines(input.activity, hasGit(input.git))
   const tail = legend.length ? [{ key: 'spacer', left: [{ text: ' ' }], right: [] }, ...legend] : []
   const fixed = 1 + nodesOf(header) + tail.reduce((n, l) => n + nodesOf(l), 0)
-  return [header, ...budgeted(tree, NODE_BUDGET - fixed), ...tail].map((l) => fit(l, input.width))
+  return [header, ...[...budgeted(tree, NODE_BUDGET - fixed), ...tail].map((l) => fit(l, input.width))]
 }
 
 // Keeps lines while they fit the budget; the rest become one "… N more" line.
 function budgeted(lines: Line[], budget: number): Line[] {
-  const more = (n: number): Line => ({ key: 'more:budget', left: [{ text: `… ${n} more`, dim: true }], right: [] })
+  const more = (n: number): Line => ({ key: 'overflow', left: [{ text: `… ${n} more`, dim: true }], right: [] })
   const reserve = nodesOf(more(lines.length))
   let used = 0
   for (let i = 0; i < lines.length; i++) {

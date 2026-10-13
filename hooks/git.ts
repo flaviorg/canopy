@@ -94,6 +94,19 @@ export function rollupAll(files: Record<string, Badge>): (dirRel: string) => Bad
   }
 }
 
+/**
+ * Porcelain paths are relative to the repository's root. A session rooted in a subfolder
+ * (`git rev-parse --show-prefix` says `web/`) keeps the paths under it, relative to it.
+ */
+export function withinPrefix(state: GitState, prefix: string): GitState {
+  if (!prefix) return state
+  const files: Record<string, Badge> = {}
+  for (const [path, badge] of Object.entries(state.files)) {
+    if (path.startsWith(prefix)) files[path.slice(prefix.length)] = badge
+  }
+  return { branch: state.branch, files }
+}
+
 /** The paths a commit took: changed before, clean after. */
 export function committed(before: GitState, after: GitState): string[] {
   return Object.keys(before.files).filter((path) => !(path in after.files)).sort()

@@ -28,6 +28,17 @@ export function mark(marks: Marks, path: string, kind: MarkKind, now: number): M
   return prune({ ...marks, [path]: next }, now)
 }
 
+/** Takes marks back: each path returns to what `earlier` had for it, or to nothing. */
+export function forget(marks: Marks, paths: readonly string[], earlier: Marks): Marks {
+  const out = { ...marks }
+  for (const path of paths) {
+    const before = earlier[path]
+    if (before) out[path] = before
+    else delete out[path]
+  }
+  return out
+}
+
 function prune(marks: Marks, now: number): Marks {
   const extra = Object.keys(marks).length - MAX_MARKS
   if (extra <= 0) return marks

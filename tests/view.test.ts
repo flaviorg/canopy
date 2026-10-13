@@ -190,6 +190,9 @@ test('pane lines: header, tree, spacer, legend; or the empty states', async () =
   expect(empty.map((l) => l.key)).toEqual(['header', 'row:', 'empty'])
   const unreadable = paneLines(input({ rows: [] }), 'unreadable', '/w')
   expect(unreadable.map((l) => l.key)).toEqual(['header', 'empty'])
+  // A sentence wraps rather than being cut, however narrow the pane.
+  const narrow = paneLines(input({ rows: [{ type: 'root', path: '', name: 'w' }], width: 24 }), 'empty', '/w')
+  expect(narrow.at(-1)!.left[0]!.text).toBe('Empty folder — files appear here as Claude creates them.')
 })
 
 test('node budget keeps a huge tree drawable', async () => {
@@ -198,7 +201,7 @@ test('node budget keeps a huge tree drawable', async () => {
   const lines = paneLines(input({ rows: flatten('w', listing, () => false), git }), 'ready', '/w')
   const total = 1 + lines.reduce((n, l) => n + nodesOf(l), 0)
   expect(total).toBeLessThanOrEqual(NODE_BUDGET)
-  const more = lines.find((l) => l.key === 'more:budget')
+  const more = lines.find((l) => l.key === 'overflow')
   expect(more).toBeDefined()
   expect(text(more!.left)).toMatch(/^… \d+ more$/)
   expect(lines.at(-1)!.key).toBe('legend:git')

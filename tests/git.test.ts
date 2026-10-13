@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { badgeFor, committed, NO_GIT, parseStatus, rollup, rollupAll, STATUS_ARGV } from '../hooks/git.ts'
+import { badgeFor, committed, NO_GIT, parseStatus, rollup, rollupAll, STATUS_ARGV, withinPrefix } from '../hooks/git.ts'
 
 test('parses branch and badges', async () => {
   const out = '## main...origin/main\0 M src/a.ts\0A  src/new.ts\0?? notes/\0 D old.ts\0R  b.ts\0a.ts\0'
@@ -62,4 +62,10 @@ test('committed lists files that became clean', async () => {
   const after = { branch: 'main', files: { 'c.ts': 'M' } } as const
   expect(committed(before, after)).toEqual(['a.ts', 'b.ts'])
   expect(committed(NO_GIT, after)).toEqual([])
+})
+
+test('a session in a subfolder sees paths relative to it', async () => {
+  const state = parseStatus('## main\0 M web/src/a.ts\0?? web/notes/\0 M api/b.ts\0?? web/\0')
+  expect(withinPrefix(state, 'web/')).toEqual({ branch: 'main', files: { 'src/a.ts': 'M', notes: 'U' } })
+  expect(withinPrefix(state, '')).toBe(state)
 })
