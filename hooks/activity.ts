@@ -84,13 +84,19 @@ export function hotUnder(marks: Marks, dirRel: string, now: number): number {
   return n
 }
 
+/** hotUnder for every folder at once, in one pass: folder → hot or warm marks inside it. */
+export function hotCounts(marks: Marks, now: number): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const [path, m] of Object.entries(marks)) {
+    if (heat(m, now) === 'cold') continue
+    for (const dir of ancestors(path)) counts.set(dir, (counts.get(dir) ?? 0) + 1)
+  }
+  return counts
+}
+
 /** The folders above every hot or warm mark: the tree opens them so the work shows. */
 export function litDirs(marks: Marks, now: number): Set<string> {
-  const dirs = new Set<string>()
-  for (const [path, m] of Object.entries(marks)) {
-    if (heat(m, now) !== 'cold') for (const dir of ancestors(path)) dirs.add(dir)
-  }
-  return dirs
+  return new Set(hotCounts(marks, now).keys())
 }
 
 /** Whether the `activity` option lets a kind of touch light the tree. */

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { badgeFor, committed, NO_GIT, parseStatus, rollup, STATUS_ARGV } from '../hooks/git.ts'
+import { badgeFor, committed, NO_GIT, parseStatus, rollup, rollupAll, STATUS_ARGV } from '../hooks/git.ts'
 
 test('parses branch and badges', async () => {
   const out = '## main...origin/main\0 M src/a.ts\0A  src/new.ts\0?? notes/\0 D old.ts\0R  b.ts\0a.ts\0'
@@ -42,6 +42,12 @@ test('rollup prefers D then M', async () => {
   expect(rollup(files, 'notes/deep')).toBe('U')
   expect(rollup(files, 'lib')).toBe(null)
   expect(rollup({ 'a/x': 'U', 'a/y': 'M', 'a/z': 'A' }, 'a')).toBe('M')
+})
+
+test('rollupAll answers like rollup for every folder', async () => {
+  const files = { 'src/a.ts': 'M', 'src/b.ts': 'D', 'src/lib/c.ts': 'A', 'docs/x.md': 'U', notes: 'U', 'srcx.ts': 'R' } as const
+  const lookup = rollupAll(files)
+  for (const dir of ['', 'src', 'src/lib', 'docs', 'notes', 'notes/deep', 'lib', 's']) expect(lookup(dir)).toBe(rollup(files, dir))
 })
 
 test('files inside an untracked folder are new too', async () => {

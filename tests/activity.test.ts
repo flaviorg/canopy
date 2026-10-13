@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import {
-  allows, anyHot, heat, HOT_MS, hotUnder, litDirs, mark, MAX_MARKS, newestHot, summary, WARM_MS, type Marks,
+  allows, anyHot, heat, HOT_MS, hotCounts, hotUnder, litDirs, mark, MAX_MARKS, newestHot, summary, WARM_MS, type Marks,
 } from '../hooks/activity.ts'
 
 const T = 100_000
@@ -67,6 +67,15 @@ test('hotUnder counts inside a dir only', async () => {
   expect(hotUnder(m, '', T)).toBe(3)
   expect(hotUnder(m, 's', T)).toBe(0)
   expect(hotUnder(m, 'src/lib', T)).toBe(1)
+})
+
+test('hotCounts answers like hotUnder for every folder', async () => {
+  let m = mark({}, 'src/a.ts', 'write', T)
+  m = mark(m, 'src/lib/b.ts', 'read', T)
+  m = mark(m, 'srcx.ts', 'read', T)
+  m = mark(m, 'src/cold.ts', 'read', T - 100_000)
+  const counts = hotCounts(m, T)
+  for (const dir of ['', 'src', 'src/lib', 's', 'docs']) expect(counts.get(dir) ?? 0).toBe(hotUnder(m, dir, T))
 })
 
 test('lit folders are the ones above hot or warm marks', async () => {

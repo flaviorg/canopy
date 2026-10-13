@@ -1,5 +1,6 @@
 // canopy's view of git: the branch and a badge per changed path, read from
 // `git status --porcelain=v1 -b -z`, and which files a commit took. Pure, no mods API.
+import { ancestors } from './tree.ts'
 
 export type Badge = 'M' | 'A' | 'D' | 'R' | 'U'
 export type GitState = { branch: string | null; files: Record<string, Badge> }
@@ -72,6 +73,25 @@ export function rollup(files: Record<string, Badge>, dirRel: string): Badge | nu
     worst = Math.min(worst, SEVERITY.indexOf(badge))
   }
   return SEVERITY[worst] ?? (dirRel ? badgeFor(files, dirRel) : null)
+}
+
+/** rollup for every folder at once: a lookup built in one pass over the badges. */
+export function rollupAll(files: Record<string, Badge>): (dirRel: string) => Badge | null {
+  const worst = new Map<string, number>()
+  const note = (dir: string, rank: number) => {
+    const known = worst.get(dir)
+    if (known === undefined || rank < known) worst.set(dir, rank)
+  }
+  for (const [path, badge] of Object.entries(files)) {
+    const rank = SEVERITY.indexOf(badge)
+    note(path, rank)
+    for (const dir of ancestors(path)) note(dir, rank)
+  }
+  return (dirRel) => {
+    const rank = worst.get(dirRel)
+    if (rank !== undefined) return SEVERITY[rank]!
+    return dirRel ? badgeFor(files, dirRel) : null
+  }
 }
 
 /** The paths a commit took: changed before, clean after. */
