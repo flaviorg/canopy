@@ -47,14 +47,27 @@ export function headerLine(input: ViewInput): Line {
   const { edited, read } = summary(marks)
   const left: Seg[] = [{ text: '◆ canopy', bold: true }]
   const fact = (seg: Seg) => left.push({ text: ' · ', dim: true }, seg)
-  if (input.git.branch !== null) fact({ text: '⎇ ' + input.git.branch, dim: true })
+  if (input.git.branch !== null) fact({ text: '⎇ ' + printable(input.git.branch), dim: true })
   if (edited > 0) fact({ text: '✎ ' + edited, color: 'success' })
   if (read > 0) fact({ text: '◉ ' + read, color: 'suggestion' })
   const right: Seg[] = anyHot(marks, input.now) ? [{ text: pick(BRAILLE, input.frame), color: ACCENT }] : []
   return { key: 'header', left: merge(left), right }
 }
 
-/** One line per row, keyed 'row:' + path ('row:' is the root). */
+/** A row's key: 'row:' + its path ('row:' is the root), drawable as any text is. */
+export function rowKey(path: string): string {
+  return 'row:' + printable(path)
+}
+
+/**
+ * A name as the pane can draw it: the engine refuses a text holding a control character (and
+ * a newline would break the row), so each becomes '?', as `ls` shows them. Paths keep the name.
+ */
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?')
+}
+
+/** One line per row, keyed by rowKey(). */
 export function treeLines(input: ViewInput): Line[] {
   const marks = shown(input.marks, input.activity)
   const slots = hasGit(input.git)
@@ -65,8 +78,8 @@ export function treeLines(input: ViewInput): Line[] {
     switch (row.type) {
       case 'root':
         return {
-          key: 'row:',
-          left: [{ text: '▾ ', dim: true }, { text: row.name + '/', bold: true }],
+          key: rowKey(''),
+          left: [{ text: '▾ ', dim: true }, { text: printable(row.name) + '/', bold: true }],
           right: column(null, badgeOf(''), slots, '●'),
         }
       case 'dir':
@@ -74,25 +87,25 @@ export function treeLines(input: ViewInput): Line[] {
       case 'file':
         return fileLine(row, marks[row.path], input, slots)
       case 'more':
-        return { key: 'more:' + row.path, left: merge([{ text: row.guides, dim: true }, { text: `… ${row.count} more`, dim: true }]), right: [] }
+        return { key: 'more:' + printable(row.path), left: merge([{ text: row.guides, dim: true }, { text: `… ${row.count} more`, dim: true }]), right: [] }
     }
   })
 }
 
 // `inside`: hot or warm files inside a closed folder, so it says how much is happening there.
 function dirLine(row: Extract<Row, { type: 'dir' }>, inside: number, badge: Badge | null, slots: boolean): Line {
-  const left: Seg[] = [{ text: row.guides + (row.expanded ? '▾ ' : '▸ '), dim: true }, { text: row.name + '/', bold: true }]
+  const left: Seg[] = [{ text: row.guides + (row.expanded ? '▾ ' : '▸ '), dim: true }, { text: printable(row.name) + '/', bold: true }]
   if (inside > 0) left.push({ text: ' ·' + inside, color: ACCENT })
-  return { key: 'row:' + row.path, left, right: column(null, badge, slots, '●'), toggle: row.path }
+  return { key: rowKey(row.path), left, right: column(null, badge, slots, '●'), toggle: row.path }
 }
 
 function fileLine(row: Extract<Row, { type: 'file' }>, m: Mark | undefined, input: ViewInput, slots: boolean): Line {
   const swatch = swatchFor(row.name)
   const look = activityLook(m, input.now, input.frame)
   const badge = badgeFor(input.git.files, row.path)
-  const name: Seg = { text: row.name, ...look.name, ...(badge === 'D' ? { color: 'error' } : {}) }
+  const name: Seg = { text: printable(row.name), ...look.name, ...(badge === 'D' ? { color: 'error' } : {}) }
   return {
-    key: 'row:' + row.path,
+    key: rowKey(row.path),
     left: merge([{ text: row.guides, dim: true }, { text: swatch.glyph + ' ', color: swatch.color }, name]),
     right: column(look.glyph, badge, slots),
   }
@@ -148,9 +161,10 @@ export function legendLines(activity: Activity, git: boolean): Line[] {
 
 /** What the pane says instead of a tree: before the first scan, when it fails, or when empty. */
 export function emptyLine(reason: Exclude<PaneStatus, 'ready'>, root: string): Line {
+  const where = printable(root)
   const say: Record<typeof reason, Seg> = {
-    loading: { text: `Reading ${root}…`, dim: true },
-    unreadable: { text: `canopy can't read ${root} — /canopy refresh tries again.` },
+    loading: { text: `Reading ${where}…`, dim: true },
+    unreadable: { text: `canopy can't read ${where} — /canopy refresh tries again.` },
     empty: { text: 'Empty folder — files appear here as Claude creates them.', dim: true },
   }
   return { key: 'empty', left: [say[reason]], right: [] }

@@ -670,6 +670,25 @@ test('narrow panes truncate', async ($, on) => {
   await ui.unmount()
 })
 
+test('names with control characters draw as one row each', async ($, on) => {
+  const files = FILES() as Record<string, any[]>
+  files['/w'] = [dir('d\u001bir'), ...files['/w']!, file('x\u001by.ts'), file('bell\u0007'), file('nl\nx'), file('del\u007f'), file('csi\u009b2J')]
+  files['/w/d\u001bir'] = [file('in.ts')]
+  stubs(on, { files })
+  await start($)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.find({ key: 'row:x?y.ts' }))?.text).toContain('x?y.ts')
+    expect((await ui.find({ key: 'row:nl?x' }))?.text).toContain('nl?x')
+    for (const key of ['row:bell?', 'row:del?', 'row:csi?2J']) expect(await ui.find({ key })).toBeDefined()
+    await ui.press({ key: 'dir:d?ir' })
+    expect((await ui.find({ key: 'row:d?ir' }))?.text).toContain('▾ d?ir/')
+    expect(await ui.find({ key: 'row:d?ir/in.ts' })).toBeDefined()
+    await ui.press({ key: 'dir:d?ir' })
+    await ui.unmount()
+  }
+})
+
 test('an empty project says what will happen', async ($, on) => {
   stubs(on, { files: { '/w': [] } })
   await start($)

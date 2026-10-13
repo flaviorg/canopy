@@ -3,7 +3,8 @@ import { flatten, type Listing } from '../hooks/tree.ts'
 import { mark, type Marks } from '../hooks/activity.ts'
 import { NO_GIT, type GitState } from '../hooks/git.ts'
 import {
-  ACCENT, BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, SPIN, treeLines,
+  ACCENT, BRAILLE, cells, CHAR_BUDGET, emptyLine, fit, headerLine, legendLines, NODE_BUDGET, nodesOf, paneLines, printable, rowKey, SPIN,
+  treeLines,
   type Line, type Seg, type ViewInput,
 } from '../hooks/view.ts'
 
@@ -216,6 +217,17 @@ test('the text budget keeps the end of a wide pane visible', async () => {
   const chars = lines.reduce((n, l) => n + [...l.left, ...l.right].reduce((m, s) => m + s.text.length, 0), 0)
   expect(chars).toBeLessThanOrEqual(CHAR_BUDGET)
   expect(lines.find((l) => l.key === 'overflow')).toBeDefined()
+})
+
+test('names are drawn without control characters', async () => {
+  expect(printable('a\u001b[2Jb\n\t\u007f\u009bc')).toBe('a?[2Jb????c')
+  expect(rowKey('src/x\u0007.ts')).toBe('row:src/x?.ts')
+  const listing: Listing = { '': [dir('d\u0001'), file('f\r')], 'd\u0001': [] }
+  const lines = treeLines(input({ rows: flatten('w\u0002', listing, () => true), git: { branch: 'main', files: {} } }))
+  for (const l of lines) for (const seg of [...l.left, ...l.right]) expect(seg.text).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/)
+  expect(lines.map((l) => l.key)).toEqual(['row:', 'row:d?', 'row:f?'])
+  expect(lines[1]!.toggle).toBe('d\u0001')
+  expect(text(emptyLine('unreadable', '/w\u0007').left)).toContain('/w?')
 })
 
 test('nodes: a box, one per plain segment, two per styled one', async () => {

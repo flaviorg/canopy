@@ -7,7 +7,7 @@ import { allows, anyHot, heat, litDirs, markAll, unread, type Activity, type Mar
 import { changesTree, isCommit, readPaths, touchesGit } from './bashpaths.ts'
 import { COMMIT_STATUS_ARGV, committed, NO_GIT, parseStatus, STATUS_ARGV, withinPrefix, type GitState } from './git.ts'
 import { anchorFor, ancestors, flatten, ignoreRules, isHidden, join, relativeTo, toEntries, type Entry, type Ignore, type Listing } from './tree.ts'
-import { paneLines, type Line, type PaneStatus, type Seg } from './view.ts'
+import { paneLines, printable, rowKey, type Line, type PaneStatus, type Seg } from './view.ts'
 
 type Options = { start: 'on' | 'off'; activity: Activity; ignore: string; follow: 'on' | 'off' }
 
@@ -393,7 +393,7 @@ async function follow($: any): Promise<void> {
   followTo = null
   const open = await openDirs($)
   try {
-    await $.ui.scroll({ in: PANE, to: { key: 'row:' + anchorFor(rel, (dir) => open.has(dir)) }, block: 'nearest' })
+    await $.ui.scroll({ in: PANE, to: { key: rowKey(anchorFor(rel, (dir) => open.has(dir))) }, block: 'nearest' })
   } catch {}
 }
 
@@ -402,7 +402,7 @@ function drawLine(elements: any, line: Line, toggle: (dir: string) => void): any
   const { Box, Button } = elements
   const left = line.left.map((seg) => drawSeg(elements, seg))
   const dir = line.toggle
-  const children = dir === undefined ? left : [Button({ key: 'dir:' + dir, plain: true, onPress: () => toggle(dir), children: left })]
+  const children = dir === undefined ? left : [Button({ key: 'dir:' + printable(dir), plain: true, onPress: () => toggle(dir), children: left })]
   if (line.right.length) children.push(Box({ flexGrow: 1 }), ...line.right.map((seg) => drawSeg(elements, seg)))
   return Box({ key: line.key, flexDirection: 'row', children })
 }
