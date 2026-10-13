@@ -14,8 +14,6 @@
 
 <sub>An animation of the pane, drawn with canopy's own layout; reads and edits are sped up.</sub>
 
-<img src="docs/media/canopy.png" alt="canopy docked beside a real Claude Code session: notes.md and index.ts read, router.ts edited and not yet committed, todos.ts committed, todos.test.ts being edited right now, each in its own color, with TS, CS, M↓ and {} badges before the names" width="414">
-
 </div>
 
 Claude's transcript tells you *what* it did, one tool call at a time. Canopy shows you
@@ -45,6 +43,12 @@ changed, and what's already committed.
 
 *(In the pane each name takes its state's color, and each badge sits on a tile in its
 language's color.)*
+
+## In a real session
+
+<p align="center"><img src="docs/media/canopy-session.gif" alt="canopy docked beside a real Claude Code session as Claude adds a DELETE /todos/:id route: each file it reads turns blue with a turning moon, each one it edits pulses orange with a pencil and then goes yellow with a git M, and after npm test and the commit every changed file turns green with a check" width="800"></p>
+
+<p align="center"><sub>Recorded in a real Claude Code 2.1.296 session, played about twice as fast.</sub></p>
 
 ## Install
 
