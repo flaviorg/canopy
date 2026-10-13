@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import {
-  ancestors, anchorFor, BUILTIN_IGNORE, flatten, ignoreRules, isHidden, isIgnored, join, relativeTo, toEntries,
+  ancestors, anchorFor, BUILTIN_IGNORE, flatten, FOLDER_CAP, ignoreRules, isHidden, isIgnored, join, relativeTo, toEntries,
   type Listing,
 } from '../hooks/tree.ts'
 
@@ -81,10 +81,40 @@ test('collapsed dirs hide children', async () => {
 
 test('caps rows', async () => {
   const many = Array.from({ length: 5000 }, (_, i) => file('f' + i))
-  const rows = flatten('w', { '': many }, () => true, 2000)
+  const rows = flatten('w', { '': many }, () => true, 2000, 5000)
   expect(rows).toHaveLength(2002)
   expect(rows[2001]).toEqual({ type: 'more', path: '', depth: 0, guides: '└─ ', count: 3000 })
-  expect(flatten('w', { '': many.slice(0, 2000) }, () => true, 2000)).toHaveLength(2001)
+  expect(flatten('w', { '': many.slice(0, 2000) }, () => true, 2000, 5000)).toHaveLength(2001)
+  // By default one folder draws at most FOLDER_CAP entries.
+  const capped = flatten('w', { '': many }, () => true)
+  expect(capped).toHaveLength(FOLDER_CAP + 2)
+  expect(capped.at(-1)).toEqual({ type: 'more', path: '', depth: 0, guides: '└─ ', count: 5000 - FOLDER_CAP })
+})
+
+test('one huge folder leaves the rest of the tree drawn', async () => {
+  const listing: Listing = {
+    '': [dir('assets'), dir('src'), file('README.md')],
+    assets: Array.from({ length: 5000 }, (_, i) => file('img' + i + '.png')),
+    src: [file('a.ts')],
+  }
+  const rows = flatten('w', listing, () => true)
+  const paths = rows.map((r) => r.path)
+  expect(paths).toContain('src/a.ts')
+  expect(paths.at(-1)).toBe('README.md')
+  const more = rows.find((r) => r.type === 'more') as any
+  expect(more).toEqual({ type: 'more', path: 'assets', depth: 1, guides: '│  └─ ', count: 5000 - FOLDER_CAP })
+})
+
+test('past the row cap, every open folder counts what it left out', async () => {
+  const listing: Listing = {
+    '': [dir('a'), dir('b'), file('z.md')],
+    a: Array.from({ length: 10 }, (_, i) => file('f' + i)),
+    b: [file('x')],
+  }
+  const rows = flatten('w', listing, () => true, 5)
+  expect(rows.map((r: any) => (r.type === 'more' ? `${r.guides}… ${r.count}` : r.path))).toEqual([
+    '', 'a', 'a/f0', 'a/f1', 'a/f2', 'a/f3', '│  └─ … 6', '└─ … 2',
+  ])
 })
 
 test('relative paths', async () => {

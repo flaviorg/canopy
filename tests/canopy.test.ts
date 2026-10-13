@@ -538,18 +538,39 @@ test('a huge folder stays drawable', async ($, on) => {
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect(await ui.find({ key: 'row:f0.ts' })).toBeDefined()
-    expect((await ui.find({ key: 'more:' }))?.text).toContain('… 3000 more')
+    expect((await ui.find({ key: 'more:' }))?.text).toContain('… 4500 more')
     await ui.unmount()
   }
 })
 
+test('a read in a huge folder leaves the rest of the tree drawn', async ($, on) => {
+  const files = FILES() as Record<string, any[]>
+  files['/w'] = [dir('assets'), ...files['/w']!]
+  files['/w/assets'] = Array.from({ length: 5000 }, (_, i) => file(`img${i}.png`))
+  stubs(on, { files })
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/w/assets/img7.png' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'row:assets/img7.png' })).toBeDefined()
+  expect((await ui.find({ key: 'more:assets' }))?.text).toContain('… 4500 more')
+  expect(await ui.find({ key: 'row:src' })).toBeDefined()
+  expect(await ui.find({ key: 'row:README.md' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a folder-heavy project stays under the element limit', async ($, on) => {
-  const lots = Array.from({ length: 2500 }, (_, i) => dir(`d${i}`))
-  const changed = lots.map((d) => ` M ${d.name}/x.ts`).join('\0')
-  stubs(on, { files: { '/w': lots }, git: '## main\0' + changed + '\0' })
+  const tops = ['a', 'b', 'c', 'd']
+  const files: Record<string, any[]> = { '/w': tops.map(dir) }
+  let changed = ''
+  for (const top of tops) {
+    files['/w/' + top] = Array.from({ length: 500 }, (_, i) => dir(`d${i}`))
+    for (let i = 0; i < 500; i++) changed += ` M ${top}/d${i}/x.ts\0`
+  }
+  stubs(on, { files, git: '## main\0' + changed })
   await start($)
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
+    for (const top of tops) if (!(await ui.find({ key: 'row:' + top + '/d0' }))) await ui.press({ key: 'dir:' + top })
     expect((await ui.find({ key: 'overflow' }))?.text).toMatch(/^… \d+ more$/)
     await ui.unmount()
   }

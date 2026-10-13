@@ -198,7 +198,7 @@ test('pane lines: header, tree, spacer, legend; or the empty states', async () =
 test('node budget keeps a huge tree drawable', async () => {
   const listing: Listing = { '': Array.from({ length: 2000 }, (_, i) => dir('d' + i)) }
   const git: GitState = { branch: 'main', files: Object.fromEntries(Array.from({ length: 2000 }, (_, i) => ['d' + i + '/x', 'M' as const])) }
-  const lines = paneLines(input({ rows: flatten('w', listing, () => false), git }), 'ready', '/w')
+  const lines = paneLines(input({ rows: flatten('w', listing, () => false, 2000, 2000), git }), 'ready', '/w')
   const total = 1 + lines.reduce((n, l) => n + nodesOf(l), 0)
   expect(total).toBeLessThanOrEqual(NODE_BUDGET)
   const more = lines.find((l) => l.key === 'overflow')
@@ -210,7 +210,7 @@ test('node budget keeps a huge tree drawable', async () => {
 test('the text budget keeps the end of a wide pane visible', async () => {
   const long = 'x'.repeat(150)
   const listing: Listing = { '': Array.from({ length: 2000 }, (_, i) => file(`${long}-${i}.ts`)) }
-  const lines = paneLines(input({ rows: flatten('w', listing, () => true), width: 200 }), 'ready', '/w')
+  const lines = paneLines(input({ rows: flatten('w', listing, () => true, 2000, 2000), width: 200 }), 'ready', '/w')
   const chars = lines.reduce((n, l) => n + [...l.left, ...l.right].reduce((m, s) => m + s.text.length, 0), 0)
   expect(chars).toBeLessThanOrEqual(CHAR_BUDGET)
   expect(lines.find((l) => l.key === 'overflow')).toBeDefined()

@@ -19,8 +19,14 @@ export const BUILTIN_IGNORE: readonly string[] = [
   '.git', 'node_modules', 'dist', 'build', '.next', 'coverage', '__pycache__', '.venv', 'target', '.DS_Store', '.turbo', '.cache',
 ]
 
-/** The most rows drawn after the root; the rest of the folder being walked becomes one "… N more" row. */
+/**
+ * The most rows drawn after the root. Past it, the folder being walked and each open folder
+ * above it end in a "… N more" row.
+ */
 export const ROW_CAP = 2000
+
+/** The most entries one folder draws; the rest become its own "… N more" row. */
+export const FOLDER_CAP = 500
 
 // Guide pieces, three cells each: what an ancestor leaves behind, and the row's own connector.
 const PIPE = '│  '
@@ -89,18 +95,22 @@ function byName(a: string, b: string): number {
 /**
  * The rows to draw: the root, then every entry of each expanded folder under its parent. A row's
  * `guides` is drawn before its glyph: `│  ` or blank for each ancestor (blank when that ancestor
- * was the last of its folder), then `├─ ` or `└─ ` for the row itself.
+ * was the last of its folder), then `├─ ` or `└─ ` for the row itself. A folder past `folderCap`
+ * entries ends in a "… N more" row and the walk goes on, so one huge folder hides nothing else.
  */
-export function flatten(rootName: string, listing: Listing, isExpanded: (rel: string) => boolean, cap = ROW_CAP): Row[] {
+export function flatten(
+  rootName: string, listing: Listing, isExpanded: (rel: string) => boolean, cap = ROW_CAP, folderCap = FOLDER_CAP,
+): Row[] {
   const rows: Row[] = [{ type: 'root', path: '', name: rootName }]
   let full = false
 
   const walk = (dirRel: string, depth: number, prefix: string): void => {
     const entries = listing[dirRel] ?? []
+    const more = (from: number) => rows.push({ type: 'more', path: dirRel, depth, guides: prefix + ELBOW, count: entries.length - from })
     for (let i = 0; i < entries.length; i++) {
-      if (rows.length - 1 >= cap) {
-        rows.push({ type: 'more', path: dirRel, depth, guides: prefix + ELBOW, count: entries.length - i })
-        full = true
+      if (rows.length - 1 >= cap) full = true
+      if (full || i >= folderCap) {
+        more(i)
         return
       }
       const entry = entries[i]!
@@ -114,7 +124,10 @@ export function flatten(rootName: string, listing: Listing, isExpanded: (rel: st
       const expanded = listing[path] !== undefined && isExpanded(path)
       rows.push({ type: 'dir', path, name: entry.name, depth, guides, expanded })
       if (expanded) walk(path, depth + 1, prefix + (isLast ? GAP : PIPE))
-      if (full) return
+      if (full) {
+        if (!isLast) more(i + 1)
+        return
+      }
     }
   }
 

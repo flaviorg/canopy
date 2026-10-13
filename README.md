@@ -108,8 +108,8 @@ transcript (44 columns wide); otherwise it sits above the prompt. Claude Code pl
 a mod opens on its own only from 144 columns, so on a narrower terminal canopy waits for you
 to run `/canopy`.
 
-Large projects stay responsive: the tree draws at most 2,000 rows and folds the rest into
-`… N more`. In a monorepo, start Claude in a package folder and the badges follow that folder.
+Large projects stay responsive: a folder draws at most 500 entries and the tree at most
+2,000 rows, and the rest fold into `… N more` rows, so one huge folder never hides the others. In a monorepo, start Claude in a package folder and the badges follow that folder.
 
 ## Development
 
