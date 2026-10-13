@@ -24,11 +24,13 @@ const FILES = () => ({
 type Setup = { files?: Record<string, any[]>; git?: string; gitExit?: number; placed?: boolean; gitignore?: string }
 
 // Everything canopy calls, answered from memory and recorded. `calls.files` and `calls.git`
-// can be changed mid-test to stand for the disk and the repository changing.
+// can be changed mid-test to stand for the disk and the repository changing; `calls.gitFails`
+// makes `git status` time out.
 function stubs(on: any, setup: Setup = {}) {
   const calls = {
     files: setup.files ?? (FILES() as Record<string, any[]>),
     git: setup.git ?? '## main\0',
+    gitFails: false,
     lists: [] as string[],
     runs: [] as string[][],
     opens: [] as any[],
@@ -48,6 +50,7 @@ function stubs(on: any, setup: Setup = {}) {
   on('fs.read', ($: any, e: any) => (e.path === '/w/.gitignore' && setup.gitignore !== undefined ? { value: setup.gitignore } : { deny: 'ENOENT' }))
   on('process.run', ($: any, e: any) => {
     calls.runs.push(e.argv)
+    if (calls.gitFails && e.argv[1] === 'status') return { deny: 'timed out' }
     const exitCode = setup.gitExit ?? 0
     const stdout = exitCode !== 0 ? '' : e.argv[1] === 'status' ? calls.git : ''
     return { value: { exitCode, stdout, stderr: exitCode ? 'fatal: not a git repository' : '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -210,6 +213,36 @@ test('a commit turns edited files green', async ($, on) => {
     expect(row?.text).not.toMatch(/M$/)
     await ui.unmount()
   }
+})
+
+test('a git status that fails after a commit marks nothing and keeps the badges', async ($, on) => {
+  const { calls } = stubs(on, { git: '## main\0 M src/a.ts\0 M README.md\0' })
+  await start($)
+  calls.answer = (e: any) => {
+    if (e.tool !== 'Bash') return { result: 'ok' }
+    calls.git = '## main\0 M README.md\0'
+    calls.gitFails = true
+    return bashResult({ gitOperation: { commit: { sha: 'abc1234', kind: 'committed' } } })
+  }
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m x src/a.ts' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await header(ui)).toContain('⎇ main')
+  expect((await ui.find({ key: 'row:README.md' }))?.text).not.toContain('✓')
+  expect((await ui.find({ key: 'row:README.md' }))?.text).toMatch(/M$/)
+  await ui.unmount()
+})
+
+test('a poll whose git status fails keeps the branch and badges', async ($, on) => {
+  const { calls, clock } = stubs(on, { git: '## main\0 M README.md\0' })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  calls.gitFails = true
+  const runs = calls.runs.length
+  await clock.advance(5_000)
+  expect(calls.runs.length).toBeGreaterThan(runs)
+  expect(await header(ui)).toBe('◆ canopy · ⎇ main')
+  expect((await ui.find({ key: 'row:README.md' }))?.text).toMatch(/M$/)
+  await ui.unmount()
 })
 
 test('bash edits and reads light files', async ($, on) => {

@@ -73,8 +73,8 @@ export function register(on: any, options: Partial<Options>) {
     // A Read lights its file while it runs, and while it waits for permission.
     const earlier = e.tool === 'Read' && path ? await read($, marksA) : null
     const reading = earlier ? await touch($, [path!], 'read') : []
-    // A commit is judged against the status just before it.
-    const before = command !== null && isCommit(command) ? await refreshGit($) : null
+    // A commit is judged against the status just before it (null: git could not say).
+    const before = command !== null && isCommit(command) ? await readStatus($) : undefined
     const r = await next(e)
     try {
       if (!r?.deny && !r?.isError) await afterTool($, e.tool, r.result, path, command, before)
@@ -188,18 +188,26 @@ async function openDirs($: any): Promise<Set<string>> {
   return openSet(await read($, marksA), await read($, expandedA), await read($, collapsedA), await $.clock.now())
 }
 
-// Asks git for the branch and badges. Outside a repository, or on any failure, there are none.
-async function refreshGit($: any): Promise<GitState> {
+// Asks git for the branch and badges and keeps them. When git can't say (it timed out, failed
+// to start or broke), the last answer stands and this returns null.
+async function refreshGit($: any): Promise<GitState | null> {
   gitDue = false
-  if (root === null) return NO_GIT
-  let state = NO_GIT
+  const state = await readStatus($)
+  if (state !== null && JSON.stringify(await read($, gitA)) !== JSON.stringify(state)) await update($, gitA, () => state)
+  return state
+}
+
+// One `git status`: the branch and badges; none outside a repository; null when git can't say.
+async function readStatus($: any): Promise<GitState | null> {
+  if (root === null) return null
   try {
     // GIT_OPTIONAL_LOCKS=0: a status never takes the index lock from Claude's own git commands.
     const r = await $.process.run([...STATUS_ARGV], { cwd: root, timeoutMs: GIT_TIMEOUT_MS, env: { GIT_OPTIONAL_LOCKS: '0' } })
-    if (r.exitCode === 0) state = withinPrefix(parseStatus(r.stdout), gitPrefix)
-  } catch {}
-  if (JSON.stringify(await read($, gitA)) !== JSON.stringify(state)) await update($, gitA, () => state)
-  return state
+    if (r.exitCode === 0) return withinPrefix(parseStatus(r.stdout), gitPrefix)
+    return /not a git repository/i.test(r.stderr) ? NO_GIT : null
+  } catch {
+    return null
+  }
 }
 
 // Where the root sits inside its repository ('web/'), since git names paths from the top.
@@ -238,7 +246,7 @@ async function showsFile($: any, rel: string, mayBeNew: boolean): Promise<boolea
 }
 
 // What a finished tool call changed: the file it wrote or read, or what a shell command did.
-async function afterTool($: any, tool: string, result: any, path: string | undefined, command: string | null, before: GitState | null): Promise<void> {
+async function afterTool($: any, tool: string, result: any, path: string | undefined, command: string | null, before: GitState | null | undefined): Promise<void> {
   if (command !== null) return afterBash($, command, result, before)
   if (!path || tool === 'Read') return
   if (/edit|write/i.test(tool)) {
@@ -249,7 +257,9 @@ async function afterTool($: any, tool: string, result: any, path: string | undef
   }
 }
 
-async function afterBash($: any, command: string, result: any, before: GitState | null): Promise<void> {
+// `before`: the status just before a `git commit` (null when git couldn't say), undefined for
+// any other command.
+async function afterBash($: any, command: string, result: any, before: GitState | null | undefined): Promise<void> {
   if (changesTree(command)) await scanVisible($)
   const changed: string[] = result?.bashEditDiff?.changedFiles ?? []
   if (changed.length) {
@@ -257,9 +267,11 @@ async function afterBash($: any, command: string, result: any, before: GitState 
     gitDue = true
   }
   if (allows(settings.activity, 'read')) await touch($, readPaths(command), 'read', await cwdOf($))
-  if (result?.gitOperation?.commit || before !== null) {
-    const was = before ?? (await read($, gitA))
-    await touch($, committed(was, await refreshGit($)), 'commit')
+  if (result?.gitOperation?.commit || before !== undefined) {
+    const was = before === undefined ? await read($, gitA) : before
+    const now = await refreshGit($)
+    // Only two answers git gave can say what a commit took.
+    if (was !== null && now !== null) await touch($, committed(was, now), 'commit')
   } else if (touchesGit(command)) {
     await refreshGit($)
   }
